@@ -1,0 +1,13 @@
+
+
+ You provided these parameters:
+ YAML file:	/data/share/htp/prime-seq_NextGen/data/FC2024_03_01_old_new_PTO/03_zUMIs/new_2/new_2.yaml
+ zUMIs directory:		/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted
+ STAR executable		STAR
+ samtools executable		samtools
+ pigz executable		pigz
+ Rscript executable		Rscript
+ RAM limit:   40
+ zUMIs version 2.9.7e 
+
+

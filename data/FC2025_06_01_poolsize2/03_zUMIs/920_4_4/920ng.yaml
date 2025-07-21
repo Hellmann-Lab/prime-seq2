@@ -1,0 +1,53 @@
+project: poolsize2_920_4_4
+sequence_files:
+  file1:
+    name: /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/02_trimming/primeseq_poolsize2_PTO7_r1_trimmed.fastq.gz
+    base_definition:
+    - BC(1-12)
+    - UMI(13-28)
+  file2:
+    name: /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/02_trimming/primeseq_poolsize2_PTO7_r2_trimmed.fastq.gz
+    base_definition: cDNA(2-93)
+reference:
+  STAR_index: /data/share/htp/Felix_genotyping/zUMIs_tests/own_genomes/mus_musculus/STAR_idx_mouse_GRCm39/
+  GTF_file: /data/share/htp/Felix_genotyping/zUMIs_tests/own_genomes/mus_musculus/gencode.vM34.primary_assembly.annotation.gtf
+  additional_STAR_params: ''
+  additional_files:
+out_dir: /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/03_zUMIs/920_4_4/
+num_threads: 16
+mem_limit: 160
+filter_cutoffs:
+  BC_filter:
+    num_bases: 3
+    phred: 20
+  UMI_filter:
+    num_bases: 4
+    phred: 20
+barcodes:
+  barcode_num: ~
+  barcode_file: /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/03_zUMIs/920_BCs.txt
+  barcode_sharing: ''
+  automatic: no
+  BarcodeBinning: 2
+  nReadsperCell: 100
+  demultiplex: no
+counting_opts:
+  introns: yes
+  downsampling: '0'
+  strand: 1
+  Ham_Dist: 0
+  write_ham: no
+  velocyto: no
+  primaryHit: yes
+  twoPass: yes
+  UMIchimera: yes #Felix
+make_stats: yes
+inex_breakdown: yes #Felix
+Gene_ID_list: no #Felix #Ensembl ID of genes to plot UMI counts for, otherwise set to "no"
+which_Stage: Filtering
+Rscript_exec: Rscript
+STAR_exec: STAR
+pigz_exec: pigz
+samtools_exec: samtools
+zUMIs_directory: /data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted
+read_layout: SE

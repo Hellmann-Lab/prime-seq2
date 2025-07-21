@@ -1,0 +1,10 @@
+sbatch -c 20 --mem=150G -J zUMIs_MyProject --wrap "/data/share/htp/prime-seq_Paper/zUMIs/zUMIs.sh??replacebyPSzUMIsversion -c -y /data/share/htp/Data_Handling/Prime-seq_project_template/03_zUMIs/AG_Template.yaml"
+
+#80:
+sbatch -c 10 --mem=80G -J 80ng --wrap "/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted/zUMIs.sh -c -y /data/share/htp/prime-seq_NextGen/data/FC2024_08_01_poolsize/03_zUMIs/80ng/80ng.yaml"
+
+#320:
+sbatch -c 10 --mem=80G -J 320ng --wrap "/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted/zUMIs.sh -c -y /data/share/htp/prime-seq_NextGen/data/FC2024_08_01_poolsize/03_zUMIs/320ng/320ng.yaml"
+
+#920:
+sbatch -c 10 --mem=80G -J 920ng --wrap "/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted/zUMIs.sh -c -y /data/share/htp/prime-seq_NextGen/data/FC2024_08_01_poolsize/03_zUMIs/920ng/920ng.yaml"

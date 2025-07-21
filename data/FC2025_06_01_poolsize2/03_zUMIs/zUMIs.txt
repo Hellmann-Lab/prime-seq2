@@ -1,0 +1,11 @@
+#920_1_1:
+sbatch -c 16 --mem=160G -J 920_1_1 --wrap "/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted/zUMIs.sh -c -y /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/03_zUMIs/920_1_1/920ng.yaml"
+
+#920_1_4:
+sbatch -c 16 --mem=260G -J 920_1_4 --wrap "/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted/zUMIs.sh -c -y /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/03_zUMIs/920_1_4/920ng.yaml"
+
+#920_4_4:
+sbatch -c 16 --mem=160G -J 920_4_4 --wrap "/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted/zUMIs.sh -c -y /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/03_zUMIs/920_4_4/920ng.yaml"
+
+#80_1_1:
+sbatch -c 8 --mem=80G -J 80_1_1 --wrap "/data/share/htp/Felix_genotyping/zUMIs_tests/zUMIs_adapted/zUMIs.sh -c -y /data/share/htp/prime-seq_NextGen/data/FC2025_06_01_poolsize2/03_zUMIs/80_1_1/80ng.yaml"

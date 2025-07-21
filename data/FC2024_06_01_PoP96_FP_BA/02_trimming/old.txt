@@ -1,0 +1,3 @@
+Total read pairs processed:          3,673,828
+  Read 2 with adapter:                 581,134 (15.8%)
+Pairs that were too short:             138,480 (3.8%)

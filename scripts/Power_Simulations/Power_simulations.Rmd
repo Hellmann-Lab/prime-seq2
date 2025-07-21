@@ -1,0 +1,483 @@
+---
+title: "PrimeSeq Power Simulations (PSPS)"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r libraries}
+library(tidyverse)
+library(powsimR)
+library(ggpubr)
+library(here)
+```
+
+```{r}
+here:i_am("scripts/Power_Simulations/Power_simulations.Rmd")
+
+source(here("functions/custom_functions_PS.R"))
+
+set.seed(925654)
+
+unwanted_BCs <- c(
+  "TTGTAAGCGGAA",
+  "AACAGGTTCCAA",
+  "GCTACTGGTCCA",
+  "AACGTAACGCTG",
+  "AGTCGTGTCCTG",
+  "AATGTTCTCTCC",
+  "GTCGCCAACTTC",
+  "TGGCTGCAGGTT"
+)
+
+color_vector <- c("original" = "#969994", # general protocols  
+                  "improved" = "#96D8BF",   
+                  "improved w/o PTO" = "#2C3A31",  
+                  
+                  "optimized \n DNase" = "#096581", # DNase test  ## i like this
+                  "no DNase" = "#011E28",
+                  
+                  "P7-RS & P5+RS" = "#969994", # Seq adapters
+                  "P7-RS & P5-RS" = "#d7c4c1",
+                  "P7+RS & P5+RS" = "#8EDEE1", 
+                  "P7+RS & P5-RS" = "#1C333F",
+                  
+                  "original" = "#969994", # Seq adapters
+                  "blocked" = "#F0B0C9",
+                  "mirrored" = "#490914",
+                  
+                  "50 °C" = "#3F1A4C", # RT temp
+                  "42 °C" = "#DDC7E6",
+                  
+                  "80ng" = "#C4C082",
+                  "320ng" = "#7D7A3B",
+                  "920ng" = "#454321",
+                  
+                  "resuspended" = "#D28A4B" # Resuspension test (Suppl.)
+                  )
+```
+
+# Load data
+```{r load_data}
+old_paths <- c(here("data/FC2024_05_02_PoP96_BA/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+  here("data/FC2024_06_01_PoP96_FP_BA/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+  here("data/FC2024_08_01_PoP96III/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+  here("data/FC2024_11_01_PoP64_1/03_zUMIs/old/zUMIs_output/expression/PoP64_old.dgecounts.rds")
+)
+
+PTO_paths <- gsub("old", "PTO", old_paths)
+
+process_data <- function(paths, suffix) {
+  data_list <- map(seq_along(paths), ~ {
+    data <- readRDS(paths[.x])$umicount$inex$all %>%
+      as.matrix() %>%
+      remove_Geneversion() %>%
+      .[, !(colnames(.) %in% unwanted_BCs)]
+    colnames(data) <- paste0(colnames(data), paste0("_", .x, "_", suffix))
+    return(data)
+  })
+  
+  # Create a union of all row names
+  all_row_names <- Reduce(union, lapply(data_list, rownames))
+  
+  # Align each matrix to have the same row names, filling missing values with 0
+  aligned_data <- map(data_list, ~ {
+    aligned_matrix <- matrix(0, nrow = length(all_row_names), ncol = ncol(.x))
+    rownames(aligned_matrix) <- all_row_names
+    aligned_matrix[rownames(.x), ] <- .x
+    colnames(aligned_matrix) <- colnames(.x)
+    return(aligned_matrix)
+  })
+  
+  # Combine all matrices into one wide matrix
+  combined_matrix <- do.call(cbind, aligned_data)
+  return(combined_matrix)
+}
+
+# Process old and PTO data
+old <- process_data(old_paths, "old")
+PTO <- process_data(PTO_paths, "PTO")
+ncol(old)
+ncol(PTO)
+
+batch_info_old <- data.frame(batches = c(rep("a", 8), 
+                                     rep("b", 8), 
+                                     rep("c", 8), 
+                                     rep("d", 8)
+                                     ))
+
+rownames(batch_info_old) <- colnames(old)
+
+batch_info_PTO <- data.frame(batches = c(rep("a", 8), 
+                                         rep("b", 8), 
+                                         rep("c", 8), 
+                                     rep("d", 8)
+))
+
+rownames(batch_info_PTO) <- colnames(PTO)
+```
+
+# Choose distribution
+```{r choose_distribution}
+# evalDistRes_old <- evaluateDist(countData = old,
+#                             batchData = batch_info_old,
+#                             RNAseq = "bulk", 
+#                             Protocol = "UMI",
+#                             Normalisation = "TMM",
+#                             FracGenes = 0.1)
+# plotEvalDist(evalDistRes_old)
+# 
+# 
+# evalDistRes_old_MR <- evaluateDist(countData = old,
+#                                 batchData = batch_info_old,
+#                                 RNAseq = "bulk", 
+#                                 Protocol = "UMI",
+#                                 Normalisation = "MR",
+#                                 FracGenes = 0.1)
+# plotEvalDist(evalDistRes_old_MR)
+# 
+# evalDistRes_PTO <- evaluateDist(countData = PTO,
+#                                 batchData = batch_info_PTO,
+#                                 RNAseq = "bulk", 
+#                                 Protocol = "UMI",
+#                                 Normalisation = "TMM",
+#                                 FracGenes = 0.01)
+# plotEvalDist(evalDistRes_PTO)
+```
+
+# Estimate Parameters
+```{r estimate_parameters}
+estparam_old <- estimateParam(countData = old,
+                              batchData = batch_info_old,
+                              Normalisation = "TMM",
+                              RNAseq = "bulk",
+                              Protocol = 'UMI',
+                              Distribution = 'NB',
+                              NCores = NULL,
+                              verbose = TRUE,
+                              GeneFilter = 0.1 # added
+                              )
+
+saveRDS(estparam_old, file = here("scripts/Power_Simulations/pow_parameters_old.rds"))
+estparam_old <- readRDS(here("scripts/Power_Simulations/pow_parameters_old.rds"))
+
+estparam_PTO <- estimateParam(countData = PTO,
+                              batchData = batch_info_PTO,
+                              Normalisation = "TMM",
+                              RNAseq = "bulk",
+                              Protocol = 'UMI',
+                              Distribution = 'NB',
+                              NCores = NULL,
+                              verbose = TRUE,
+                              GeneFilter = 0.1
+                              )
+
+saveRDS(estparam_PTO, file = here("scripts/Power_Simulations/pow_parameter_PTO.rds"))
+estparam_PTO <- readRDS(here("scripts/Power_Simulations/pow_parameters_PTO.rds"))
+
+plotParam(estParamRes = estparam_old)
+plotParam(estParamRes = estparam_PTO)
+```
+
+# Setup
+```{r Setup}
+# prime-seq
+p.lfc <- function(x) sample(c(-1.5,1.5), size=x,replace=T)*rgamma(x, shape = 1, rate = 2)
+# BRB-seq:
+lfc.gamma <- function(x) sample(c(-1,1), size=x,replace=T)*rgamma(x, 3, 3)
+# vignette:
+p.lfc <- function(x) sample(c(-1,1), size=x,replace=T)*rgamma(x, shape = 1, rate = 2)
+
+setupres_old <- Setup(estParamRes = estparam_old,
+                      nsims = 25,
+                      pLFC = p.lfc, # added
+                      n1 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+                      n2 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+                      setup.seed = 5327)
+
+setupres_PTO <- Setup(estParamRes = estparam_PTO,
+                      nsims = 25,
+                      pLFC = p.lfc,
+                      n1 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+                      n2 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+                      setup.seed = 5327)
+```
+
+# Simulate DE 
+(long!)
+```{r Simulating_DE}
+simres_old <- simulateDE(SetupRes = setupres_old,
+                                Normalisation = 'TMM',
+                                DEmethod = "limma-voom",
+                            verbose=T)
+
+saveRDS(simres_old, file = here("scripts/Power_Simulations/pow_simulated_old.rds"))
+simres_old <- readRDS(here("scripts/Power_Simulations/pow_simulated_old.rds"))
+
+simres_PTO <- simulateDE(SetupRes = setupres_PTO,
+                         Normalisation = 'TMM',
+                         DEmethod = "limma-voom",
+                            verbose=T)
+
+saveRDS(simres_PTO, file = here("scripts/Power_Simulations/pow_simulated_PTO.rds"))
+simres_PTO <- readRDS(here("scripts/Power_Simulations/pow_simulated_PTO.rds"))
+```
+
+# Evaluate DE for plotting
+```{r DE_for_plotting}
+evalderes_old_mean <- evaluateDE(simRes = simres_old,
+                             alpha.type = 'adjusted',
+                             MTC = 'BH',
+                             stratify.by = 'mean',
+                             filter.by = 'mean',
+                             strata.filtered = 1,
+                             target.by = 'lfc',
+                             delta = 1
+                             )
+
+evalderes_PTO_mean <- evaluateDE(simRes = simres_PTO,
+                             alpha.type = 'adjusted',
+                             MTC = 'BH',
+                             stratify.by = 'mean',
+                             filter.by = 'mean',
+                             strata.filtered = 1,
+                             target.by = 'lfc',
+                             delta = 1
+                             )
+
+evalderes_old_lfc <- evaluateDE2(simRes = simres_old,
+                                 alpha.type = 'adjusted',
+                                 MTC = 'BH',
+                                 stratify.by = 'lfc_abs',
+                                 filter.by = 'mean',
+                                 strata.filtered = 1,
+                                 target.by = 'lfc',
+                                 # delta = 0
+)
+
+evalderes_PTO_lfc <- evaluateDE2(simRes = simres_PTO,
+                                 alpha.type = 'adjusted',
+                                 MTC = 'BH',
+                                 stratify.by = 'lfc_abs',
+                                 filter.by = 'mean',
+                                 strata.filtered = 1,
+                                 target.by = 'lfc',
+                                 # delta = 0
+)
+
+
+```
+
+## Plot
+```{r plot}
+plotEvalDE(evalRes = evalderes_old_mean, 
+           rate = 'marginal', 
+           quick = TRUE, 
+           Annot = TRUE)
+plotEvalDE(evalRes = evalderes_PTO_mean, 
+           rate = 'marginal', 
+           quick = TRUE, 
+           Annot = TRUE)
+plotEvalDE(evalRes = evalderes_old_mean, 
+           rate = 'conditional', 
+           quick = TRUE, 
+           Annot = TRUE)
+plotEvalDE(evalRes = evalderes_PTO_mean, 
+           rate = 'conditional', 
+           quick = TRUE, 
+           Annot = TRUE)
+
+
+
+plotEvalDE(evalRes = evalderes_old_lfc, rate = 'marginal', quick = TRUE, Annot = TRUE)
+plotEvalDE(evalRes = evalderes_PTO_lfc, rate = 'marginal', quick = TRUE, Annot = TRUE)
+```
+
+```{r }
+df_mean <- getEvalDE_df_marginal(evalderes_old_mean, 
+                                method = "original",
+                                count_type = "inex")
+df_mean <- bind_rows(df_mean,
+                    getEvalDE_df_marginal(evalderes_PTO_mean, 
+                                          method = "improved",
+                                          count_type = "inex")) %>%
+  mutate(Var1 = factor( str_extract(Var1, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48"))) %>%
+  filter(Var1 %in% as.character(c(3:48)))
+
+saveRDS(df_mean, 
+        file = here("scripts/Power_Simulations/marginal_data.rds"))
+
+refval <- data.frame(L1 = c("FDR", "TPR"),
+                     ref = c(0.1, 0.8))
+
+ggplot(data = df_mean %>% 
+         filter(L1 %in% c("TPR", "FDR")) %>%
+         mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+       aes(x =factor(Var1),
+           y = value,
+           color = method)) +
+  stat_summary(fun.data = "mean_se",
+               size = 0.3,) +
+  stat_summary(aes(group = method),
+               fun = mean, geom="line")+
+  #scale_color_manual(values=method_cols,limits = force)+
+  labs(x = "Samples per group", y = "Rate", color = "Protocol") +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')+
+  theme_pubr()+
+  # theme(legend.position = c(0.25, 0.8),
+  #       legend.background = element_blank())+
+  facet_grid(L1~., scales = "free")+
+  scale_color_manual(values = color_vector)
+
+```
+
+```{r }
+df_rates_lfc <- getEvalDE_list_conditional(evalderes_old_lfc,
+                                           method = "original",
+                                           count_type = "inex")$dat.stratified.long
+
+stratum.name_lfc <- getEvalDE_list_conditional(evalderes_old_lfc,
+                                            method = "original",
+                                            count_type = "inex")$stratum.name
+
+df_rates_lfc <- bind_rows(df_rates_lfc,getEvalDE_list_conditional(evalderes_PTO_lfc,
+                                                                  method = "improved",
+                                                                  count_type = "inex")$dat.stratified.long) %>%
+  mutate(Var1 = str_replace(Var1, "1.74", "1.75")) %>%
+  mutate(Var1 = str_replace(Var1, "0.53", "0.52")) %>%
+  mutate(Var2 = factor( str_extract(Var2, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48")))%>%
+  filter(Var2 %in% as.character(c(3:48)))
+
+saveRDS(df_rates_lfc, 
+        file = here("scripts/Power_Simulations/conditional_lfc.rds"))
+
+sample_cols<-c("#264653","#2a9d8f","#e9c46a","#f4a261","#e76f51")
+
+
+ggplot(data = df_rates_lfc%>% 
+         filter(L1 %in% c("TPR", "FDR")) %>%
+         mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+       aes(y=value, 
+           x=Var1, 
+           linetype=method, 
+           color=Var2))+
+  stat_summary(aes(x = Var1,
+                   y = value,
+                   # color = factor(Var2),
+                   group = paste(method,Var2)
+  ),
+  fun = mean, geom="line") +
+  facet_grid(L1~., scales = "free")+
+  labs(x="Stratum abs. Log2 Fold Change",
+       y="Rate",
+       colour="Samples",
+       linetype="Protocol")+
+  theme_pubr()+
+  theme(axis.text.x=element_text(angle=60,hjust=1))+
+  scale_color_manual(values = sample_cols)+
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')
+```
+
+```{r}
+
+df_genes<-getEvalDE_list_conditional(evalderes_old_lfc,method = "original",count_type = "inex")$dat.genes.calc
+
+df_genes<-bind_rows(df_genes,getEvalDE_list_conditional(evalderes_PTO_lfc,method = "improved",count_type = "inex")$dat.genes.calc)
+
+df_genes_sum<-df_genes %>% 
+  group_by(method,count_type) %>% 
+  separate(col = "Var1",sep = ",",into = c("lower","upper"),remove=F) %>% 
+  mutate(lower=as.double(str_extract(lower, "\\d+\\.*\\d*")),
+         upper=as.double(str_extract(upper,"\\d*\\.*\\d*")),
+         upper=if_else(is.na(upper),Inf,upper),
+         stratum=1:n()) %>% 
+  group_by(stratum) %>% 
+  mutate(lower=min(lower),
+         upper=max(upper),
+         stratum=paste0(lower,"-",upper))
+
+ngenes_lfc<-ggplot(df_genes_sum %>% filter(lower > 0),aes(x=stratum,y=Expectation,fill=L1,group=method))+
+  geom_col()+
+  facet_grid(method~.)+
+  theme(axis.text.x=element_text(angle=60,hjust=1))+
+  labs(x="Stratum absolute Log2 Fold Change",y="Genes",fill="")+
+  scale_fill_manual(values=c("#e07a5f","#14213d"),limits = force)
+
+ngenes_lfc
+```
+
+```{r }
+df_rates_mean <- getEvalDE_list_conditional(evalderes_old_mean,
+                                           method = "original",
+                                           count_type = "inex")$dat.stratified.long
+
+stratum.name_mean <- getEvalDE_list_conditional(evalderes_old_mean,
+                                            method = "original",
+                                            count_type = "inex")$stratum.name
+
+df_rates_mean <- bind_rows(df_rates_mean,getEvalDE_list_conditional(evalderes_PTO_mean,
+                                                                  method = "improved",
+                                                                  count_type = "inex")$dat.stratified.long)
+
+
+df_rates_mean <- df_rates_mean %>% 
+  group_by(method) %>% 
+  #separate(Var1, into = c('start','end'),sep = ',') %>% View()
+  mutate(Var1=case_when(Var1==unique(Var1)[1]~0.1,
+                        Var1==unique(Var1)[2]~0.2,
+                        Var1==unique(Var1)[3]~0.3,
+                        Var1==unique(Var1)[4]~0.4,
+                        Var1==unique(Var1)[5]~0.5,
+                        Var1==unique(Var1)[6]~0.6,
+                        Var1==unique(Var1)[7]~0.7,
+                        Var1==unique(Var1)[8]~0.8,
+                        Var1==unique(Var1)[9]~0.9,
+                        Var1==unique(Var1)[10]~1)) %>%
+  mutate(Var2 = factor( str_extract(Var2, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48")))%>%
+  filter(Var2 %in% as.character(c(3:48)))
+
+
+
+saveRDS(df_rates_mean, 
+        file = here("scripts/Power_Simulations/conditional_mean.rds"))
+
+ggplot(data = df_rates_mean %>%
+         filter(L1 %in% c("TPR", "FDR")) %>%
+         mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+       aes(y=value, x=Var1, linetype=method, color=Var2))+
+  stat_summary(aes(x = Var1,
+                   y = value,
+                   # color = factor(Var2),
+                   group = paste(method,Var2)),
+               fun = mean, 
+               geom="line") +
+  facet_grid(L1~., 
+             scales = "free")+
+  labs(x="Percentile Log2 Mean Expression",
+       y="Rate",
+       colour="n",
+       linetype="Protocol")+
+  theme_pubr()+
+  theme(axis.text.x=element_text(angle=60,
+                                 hjust=1))+
+  scale_color_manual(values = sample_cols)+
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')
+```
+
+

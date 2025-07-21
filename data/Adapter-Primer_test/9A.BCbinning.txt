@@ -1,0 +1,2 @@
+falseBC,hamming,trueBC,n
+CCATCTCAGGGA,1,CCATCTCAGCGA,107

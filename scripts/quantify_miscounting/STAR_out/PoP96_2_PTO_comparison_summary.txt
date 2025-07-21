@@ -1,0 +1,7 @@
+assignment	true_assignment	n
+InEx only	InEx	320439
+InEx & Intergenic	Intergenic	112849
+InEx only	Intergenic	45495
+InEx & Intergenic	InEx	38846
+Intergenic only	Intergenic	12146
+Intergenic only	InEx	120

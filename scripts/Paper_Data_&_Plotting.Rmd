@@ -1,0 +1,1717 @@
+---
+title: "PrimeSeq Paper Plots (PSPP)"
+output:
+  html_document:
+    df_print: paged
+---
+
+Here we assemble the code for analyzing and plotting the data used for the publication of the improved prime-seq protocol!
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(data.table)
+library(ggbeeswarm)
+library(purrr)
+library(ggpubr)
+library(readxl)
+library(patchwork)
+library(cowplot)
+library(ShortRead)
+library(bioanalyzeR)
+library(here)
+library(car)
+```
+
+```{r}
+here::i_am("scripts/Paper_Data_&_Plotting.Rmd")
+```
+
+
+# Colors
+```{r set_colors}
+color_vector <- c("original" = "#969994", # general protocols  
+                  "improved" = "#96D8BF",   
+                  "improved w/o PTO" = "#2C3A31",  
+                  
+                  "optimized \n DNase" = "#096581", # DNase test  ## i like this
+                  "no DNase" = "#011E28",
+                  
+                  "P7-RS & P5+RS" = "#969994", # Seq adapters
+                  "P7-RS & P5-RS" = "#d7c4c1",
+                  "P7+RS & P5+RS" = "#8EDEE1", 
+                  "P7+RS & P5-RS" = "#1C333F",
+                  
+                  "original" = "#969994", # Seq adapters
+                  "blocked" = "#F0B0C9",
+                  "mirrored" = "#490914",
+                  
+                  "50 °C" = "#3F1A4C", # RT temp
+                  "42 °C" = "#DDC7E6",
+                  
+                  "80ng" = "#C4C082",
+                  "320ng" = "#7D7A3B",
+                  "920ng" = "#454321",
+                  
+                  "resuspended" = "#D28A4B" # Resuspension test (Suppl.)
+)
+```
+
+```{r}
+unwanted_BCs <- c(
+  "TTGTAAGCGGAA",
+  "AACAGGTTCCAA",
+  "GCTACTGGTCCA",
+  "AACGTAACGCTG",
+  "AGTCGTGTCCTG",
+  "AATGTTCTCTCC",
+  "GTCGCCAACTTC",
+  "TGGCTGCAGGTT"
+)
+```
+
+
+# Figure A
+## Flowcell Yields
+```{r Fig4_FCyields}
+PS_FC_yields=read.table(here("data/random_collections/deML_stats_updatedEB.txt"),sep = "\t",skip = 1, header=T)
+
+PS_FC_yields2 <- PS_FC_yields %>%
+  mutate(protocol=if_else(protocol=="old -RNA", true="old", false=protocol)) %>%
+  filter(protocol %in% c("PTO", "old")) %>% 
+  dplyr::select(FC, FC.type, total.reads.FC, Expectet.total.reads.FC,protocol) %>% unique() %>%
+  filter(!(FC=="24_05_02" & protocol=="old")) %>%
+  filter(!(FC=="24_03_01" & protocol=="old")) %>%
+  filter(!(FC=="24_05_01" & protocol=="old")) %>%
+  filter(!(FC=="24_08_01" & protocol=="old")) %>%
+  filter(!(FC=="24_06_01" & protocol=="old")) %>%
+  filter(FC!="23_02_01") %>% # duplicate (exact same number as other)
+  filter(FC!="23_01_01") %>% # REMOVE this Flowcell!! was 95% 10x! (only 5% prime-seq!)
+  #rename values
+  mutate(protocol=if_else(protocol=="old", true="original", false=protocol)) %>%
+  mutate(protocol=if_else(protocol=="PTO", true="improved", false=protocol)) %>% 
+  mutate(protocol = factor(protocol, levels=c("original", "improved"))) %>%
+  mutate(percent_exp_yield=total.reads.FC/Expectet.total.reads.FC*100)
+
+FC_plot <- PS_FC_yields2 %>%
+  ggplot()+
+  # theme_light()+
+  #geom_col(aes(x=FC,y=percent_exp_yield, fill=protocol))+
+  #geom_hline((aes(yintercept=Expectet.total.reads.FC)))+
+  #facet_wrap(~FC.type, scales = "free_y")+coord_flip()+
+  geom_hline(aes(yintercept=100), linetype="dashed")+
+  geom_violin(aes(x=protocol,y=percent_exp_yield, fill=protocol))+
+  #geom_boxplot(aes(x=protocol,y=percent_exp_yield),fill="lightgrey")+ #, fill=protocol
+  geom_quasirandom(aes(x=protocol,y=percent_exp_yield#color=FC.type
+  ),size=2)+
+  scale_x_discrete(limits=rev)+
+  ylab("Flowcell yield [%]")+xlab("")+
+  coord_flip()+
+  theme_classic()+
+  theme(
+    panel.border = element_rect(colour = "black", fill=NA, linewidth=1),
+    legend.position = "none"
+    #   axis.text=element_text(size=12),
+    #   axis.title = element_text(size=12, face="bold")
+  )+
+  scale_fill_manual(values=color_vector)
+
+FC_plot
+```
+
+## Read Funnel
+```{r Read_Funnel_plot_overview}
+source(here("scripts/read_funnel_data.R"))
+
+# plot overview
+funnel_plot2 <- ggplot()+
+  geom_line(data=read_funnel_avg_all, 
+            aes(y=step, x=reads_rel, color=project, group=project),
+            size = 1.5) + 
+  scale_x_continuous(position = "top") + 
+  ylab("") +
+  xlab("Relative Reads")+
+  scale_y_discrete(limits = rev(levels(read_funnel_avg_all$step)))+
+  labs(color="protocol") +
+  theme_classic() +
+  theme(    
+    panel.border = element_rect(colour = "black", fill=NA, linewidth=1),
+    legend.position = "none"
+  )+
+  scale_color_manual(values = color_vector)
+
+funnel_plot2
+```
+
+
+#### Composite
+```{r FigA_Composite_plot}
+overview_plot <-
+  FC_plot / funnel_plot2 +
+  plot_layout(heights = c(1, 2))
+
+overview_plot
+
+# save
+ggsave(plot = overview_plot,
+       filename = here("figures/fig_A_plots.pdf"),
+       height = 4.5,
+       width = 3.8,
+       device = cairo_pdf
+)
+```
+
+
+# Figure 1
+## DNA digest
+### DNase test QF
+```{r Fig2_DNase_test}
+# get data
+dnase_QF <- read_excel(here("data/random_collections/DNase_test_QuantiFluor_data.xlsx")) %>%
+  mutate(condition = factor(case_when(condition == "ctrl" ~ "no DNase",
+                                      condition == "old" ~ "original",
+                                      T ~ "optimized \n DNase"
+  ), 
+  levels = c("no DNase",
+             "original", 
+             "optimized \n DNase"
+  )
+  ),
+  run = as.character(run)
+  )
+
+# plot
+DNA_plot_no_ctrl <- dnase_QF %>%
+  filter(modality == "DNA" & condition != "no DNase") %>%
+  ggplot(aes(y=mass_ng, x=condition, color=condition)) +
+  geom_boxplot() +
+  stat_compare_means(method = "t.test", 
+                     paired = FALSE, 
+                     label = "p.signif",
+                     ref.group = "original") +
+  ylab("DNA [ng]")+
+  xlab("")+
+  theme_pubr() +
+  #facet_grid(~condition, scales="free_x") +
+  #scale_x_discrete(position = "top") + 
+  scale_color_manual(values=color_vector)+
+  theme(legend.position = "none",
+        #axis.text.x = element_blank(),
+        axis.text.x = element_text(size=13),
+        #axis.ticks.x = element_blank()
+  )
+
+DNA_plot_no_ctrl
+```
+
+### Mapping Fractions
+```{r Fig2_Mapping_Fractions}
+# get data
+file_paths2 <- list.files(path = here("data/BBB_Resusp/"),
+                          pattern = "\\.readspercell\\.txt$", 
+                          recursive = TRUE)
+
+rpc_BBB <- map_df(seq_along(file_paths2), function(i) {
+  read_delim(here("data/BBB_Resusp", file_paths2[i])) %>%
+    filter(RG != "bad") %>%
+    mutate(project = str_extract(file_paths2[i], "...")) %>%
+    mutate(type = ifelse(type %in% c("Intron", "Exon"), "Exon + Intron", type)) %>%
+    summarise(N = sum(N), .by = c(type, RG, project)) %>%
+    group_by(RG) %>%
+    mutate(sum = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction = N / sum) %>%
+    group_by(project) %>%
+    mutate(sum_project = sum(N)) %>%
+    ungroup() %>%
+    group_by(type) %>%
+    mutate(sum_type = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction_type_project = sum_type / sum_project) %>%
+    select(RG, N, type, project, fraction, fraction_type_project)
+}) %>%
+  filter(project != "Res") %>%
+  mutate(project = factor(ifelse(project == "Std", "original", "optimized \n DNase"), levels = c("original", "optimized \n DNase"))) %>%
+  filter(type %in% c("Exon + Intron", "Intergenic")) %>%
+  mutate(type = factor(type, levels = c("Exon + Intron", "Intergenic"))) 
+
+# plot
+mapping_fract_BBB_ExIn <- ggplot(data=rpc_BBB %>% filter(type == "Exon + Intron"), aes(y=fraction, x=project, color=project))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test", 
+                     paired = FALSE, 
+                     label = "p.signif",
+                     ref.group = "original") +
+  #coord_flip() +
+  labs(y = "Exon + intron fraction", x = "", color = "Protocol") +
+  theme_pubr(legend = "none") +
+  scale_color_manual(values=color_vector)+
+  theme(axis.text.x = element_text(size=13),
+        #axis.ticks.x = element_blank()
+  )
+mapping_fract_BBB_ExIn
+
+mapping_fract_BBB_In <- ggplot(data=rpc_BBB %>% filter(type == "Intergenic"), aes(y=fraction, x=project, color=project))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test", 
+                     paired = FALSE, 
+                     label = "p.signif",
+                     ref.group = "original") +
+  #coord_flip() +
+  labs(y = "Intergenic fraction", x = "", color = "Protocol") +
+  theme_pubr(legend = "none") +
+  scale_color_manual(values=color_vector)+
+  theme(axis.text.x = element_text(size=13),
+        #axis.ticks.x = element_blank()
+  )
+
+mapping_fract_BBB_In
+```
+
+
+## RT
+### Complexity
+```{r RT_Complexity}
+complexity <- readRDS(here("data/RTase/complexity_RTase.rds")) %>%
+  mutate(temp = paste(str_extract(project, "..$"), "°C")) %>%
+  mutate(enzyme = ifelse(grepl("Maxima_..", project), "Maxima H-", "Superscript IV")) %>%
+  filter(replicate == 1) %>% 
+  filter(ds_level2 == "7.0e+06")
+
+RT_complexity_plot <- ggplot(complexity, 
+                             aes(y=n, x=temp, fill = temp))+
+  geom_violin()+
+  stat_compare_means(method = "t.test", 
+                     paired = FALSE, 
+                     label = "p.signif",
+                     label.y = 17000,
+                     ref.group = "42 °C") +
+  facet_grid(.~enzyme)+
+  stat_summary(fun.data = "mean_cl_boot", 
+               geom = "pointrange",
+               colour = "black")+
+  xlab("")+
+  ylab("Detected Genes")+
+  theme_pubr(legend = "none")+
+  scale_fill_manual(values = color_vector)+
+  theme(axis.text.x = element_text(size=13),
+        strip.text.x = element_text(size=13))
+
+RT_complexity_plot
+```
+
+### Mapping fractions
+```{r RT_Mapping_fract}
+# List file paths matching pattern
+file_paths <- list.files(path = here("data/RTase"),
+                         pattern = "\\.readspercell\\.txt$", 
+                         recursive = TRUE)
+
+# Extract metadata from file paths
+names <- str_extract(file_paths, "([^/]+)(?=\\.readspercell\\.txt)")
+
+# Process each file and combine results
+process_file <- function(i) {
+  read.csv(here("data/RTase/" , file_paths[i]), sep = "\t") %>%
+    filter(RG != "bad") %>%
+    mutate(project = names[i]) %>%
+    mutate(type = ifelse(type %in% c("Intron", "Exon"), "Exon + Intron", type)) %>%
+    summarise(N = sum(N), .by = c(type, RG, project)) %>%
+    group_by(RG) %>%
+    mutate(sum = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction = N / sum) %>%
+    group_by(project) %>%
+    mutate(sum_project = sum(N)) %>%
+    ungroup() %>%
+    group_by(type) %>%
+    mutate(sum_type = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction_type_project = sum_type / sum_project) %>%
+    select(RG, N, type, project, fraction, fraction_type_project)
+}
+
+map_fract_RT <- map_df(1:length(file_paths), process_file) %>%
+  mutate(temp = paste(str_extract(project, "..$"), "°C")) %>%
+  mutate(enzyme = ifelse(grepl("Maxima_..", project), "Maxima H-", "Superscript IV")) %>%
+  filter(type == c("Exon + Intron"))
+
+RT_fract_plot <- ggplot(data=map_fract_RT, aes(y=fraction, x=temp, color=temp))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test", 
+                     paired = FALSE, 
+                     label = "p.signif",
+                     label.y = 0.92,
+                     ref.group = "42 °C") +
+  labs(y = "Exon + intron fraction", x = "") +
+  facet_grid(~enzyme, scales = "free")+
+  theme_pubr(legend = "none") +
+  scale_color_manual(values=color_vector) +
+  # theme(panel.border = element_rect(color = "black", fill = NA)  # Add border around each panel
+  # )+
+  theme(axis.text.x = element_text(size=13),
+        strip.text.x = element_text(size=13))
+
+RT_fract_plot
+```
+
+
+
+## Mapping fractions poolsize
+```{r Fig2_Mapping_Fractions_poolsize}
+# get data
+setwd(here("data/FC2024_08_01_poolsize/03b_zUMIs_downsampled/"))
+file_paths9 <- list.files(pattern = "\\.readspercell\\.txt$", recursive = TRUE)
+
+names_poolsize <- c("320ng", "80ng", "920ng")
+
+rpc_poolsize <- map_df(seq_along(file_paths9), function(i) {
+  read_delim(file_paths9[i]) %>%
+    filter(RG != "bad") %>%
+    mutate(project = names_poolsize[i]) %>%
+    mutate(type = ifelse(type %in% c("Intron", "Exon"), "Exon + Intron", type)) %>%
+    summarise(N = sum(N), .by = c(type, RG, project)) %>%
+    group_by(RG) %>%
+    mutate(sum = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction = N / sum) %>%
+    group_by(project) %>%
+    mutate(sum_project = sum(N)) %>%
+    ungroup() %>%
+    group_by(type) %>%
+    mutate(sum_type = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction_type_project = sum_type / sum_project) %>%
+    select(RG, N, type, project, fraction, fraction_type_project)
+}) %>%
+  mutate(project = factor(project, levels = c("80ng", "320ng", "920ng"))) %>%
+  filter(type == "Exon + Intron")
+
+rpc_poolsize$project %>% factor(levels = c("80ng", "320ng", "920ng"))
+
+# plot
+mapping_fract_poolsize <- ggplot(data=rpc_poolsize, aes(y=fraction, x=project, color=project))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test", 
+                     paired = FALSE, 
+                     label = "p.signif",
+                     comparisons = list(c("320ng", "80ng"),
+                                        c("920ng", "80ng"))
+  ) +
+  labs(y = "Exon + intron fraction", x = "", color = "total RNA input") +
+  theme_pubr(legend = "none") +
+  scale_color_manual(values=color_vector)+
+  theme(axis.text.x = element_text(size=13),
+        #axis.ticks.x = element_blank()
+  )
+
+mapping_fract_poolsize
+```
+
+## Make composite
+```{r RT_Composite}
+
+layout <- "ABCDF\nABCEF"
+
+comp_plot_Fig2 <- 
+  DNA_plot_no_ctrl +
+  mapping_fract_BBB_ExIn +
+  mapping_fract_BBB_In +
+  RT_fract_plot +
+  RT_complexity_plot +
+  mapping_fract_poolsize +
+  plot_layout(design = layout,
+              widths = c(1, 1, 1, 1.6, 1.3))
+
+# save
+ggsave(plot = comp_plot_Fig2,
+       filename = here("figures/fig_1_plots.pdf"),
+       height = 5,
+       width = 13
+)
+
+```
+
+
+# Figure 2
+## Relative Reads plots
+```{r Fig3_Reads}
+# get data
+lib_data <- readRDS(here("data/Adapter-Primer_test/conc_readno_forR.rds")) %>%
+  mutate(PS = factor(ifelse(PS == "normal", "original", as.character(PS)),
+                     levels = c("original",
+                                "mirrored",
+                                "blocked")),
+         P5 = ifelse(P5 == "normal", "P5+RS", "P5-RS"),
+         P7 = ifelse(P7 == "normal", "P7-RS", "P7+RS"),
+         seq_adapters = factor(paste0(P7, " & ", P5), 
+                               levels = c("P7-RS & P5+RS", 
+                                          "P7-RS & P5-RS", 
+                                          "P7+RS & P5+RS", 
+                                          "P7+RS & P5-RS"))
+  )
+
+# P7
+lib_data_P7 <- lib_data %>%
+  group_by(PS_P5_rep) %>%
+  
+  mutate(ctrl_readno_P7 = ifelse(P7 == "P7-RS", readno, NA)) %>%
+  fill(ctrl_readno_P7, .direction = "downup") %>%
+  mutate(norm_readno_P7 = readno / ctrl_readno_P7) %>%
+  ungroup() %>%
+  filter(P7 != "P7-RS")
+
+
+read_plot_P7 <- ggplot(data=lib_data_P7, aes(x=P7, y=norm_readno_P7))+
+  geom_boxplot(outlier.shape = NA)+
+  # geom_quasirandom(aes(color=PS), size=3)+
+  stat_compare_means(method = "t.test",
+                     ref.group = "original",
+                     paired = FALSE, 
+                     label = "p.signif") +
+  geom_hline(yintercept = 1, linetype = "dashed") + 
+  ylab("Relative read number")+
+  xlab("")+
+  labs(color="Ligation adapters")+
+  theme_pubr(legend = "right")+
+  scale_color_manual(values=color_vector)+
+  coord_cartesian(ylim = c(0.6, 1.9))+
+  theme(axis.text.x = element_text(size=13))
+
+read_plot_P7
+
+# get number of more reads by longer P7
+lib_data_P7 %>% 
+  filter(P7=="P7+RS") %>%
+  summarise(mean=mean(norm_readno_P7))
+
+# Ligation adapter
+# transform data
+lib_data_lig <- lib_data %>%
+  group_by(seq_adapters_rep) %>%
+  mutate(ctrl_readno_PS = ifelse(PS == "original", readno, NA)) %>%
+  fill(ctrl_readno_PS, .direction = "downup") %>%
+  mutate(norm_readno_PS = readno / ctrl_readno_PS) %>%
+  ungroup() %>%
+  filter(PS != "original")
+
+# plot
+read_plot_lig <- ggplot(data=lib_data_lig, aes(x=PS, y=norm_readno_PS, color=PS))+
+  geom_boxplot(outlier.shape = NA)+
+  #geom_quasirandom(aes(color=seq_adapters), size=3)+
+  geom_hline(yintercept = 1, linetype = "dashed") + 
+  ylab("Relative read number")+
+  xlab("")+
+  labs(color="Ligation adapter")+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values=color_vector)+
+  coord_cartesian(ylim = c(0.6, 1.9))+  
+  theme(axis.text.x = element_text(size=13))
+
+read_plot_lig
+
+# get number of more reads by blocking
+lib_data_lig %>% 
+  filter(PS=="blocked") %>%
+  summarise(mean=mean(norm_readno_PS))
+
+# composite
+
+read_plot <- read_plot_P7 +  
+  read_plot_lig +
+  plot_layout(
+    widths = c(1, 1.9))
+
+read_plot
+
+# save
+ggsave(plot = read_plot,
+       filename = here("figures/fig_2_reads.pdf"),
+       height = 5,
+       width = 3.3
+)
+```
+
+## Combination plots
+### Normal adapter only
+
+
+#### Assigned barcodes
+```{r}
+df_all <- data.frame()
+
+for (i in lib_data$Sample){
+  seq=as.data.frame(readFastq(dirPath = here("data/Adapter-Primer_test/"),
+                              pattern = paste0("read1_", i, ".fastq.gz"))@sread)
+  colnames(seq)=c("seq")
+  seq=seq %>%
+    mutate(seq=as.character(seq)) %>%
+    mutate(BC=substr(seq,1,12))
+  
+  if (i == "2C"){
+    BCs <- read.csv(file=here("data/Adapter-Primer_test/", paste0(i, 
+                                                                  "kept_barcodes.txt")),
+                    sep=",")[,1]
+  } else {
+    BCs <- c(read.csv(file=here("data/Adapter-Primer_test/", paste0(i, 
+                                                                    ".BCbinning.txt")), 
+                      sep=",")[,1],
+             read.csv(file=here("data/Adapter-Primer_test/", paste0(i, 
+                                                                    "kept_barcodes.txt")),
+                      sep=",")[,1])
+  }
+  
+  df <- seq %>% dplyr::count(BC) %>% arrange(-n) %>%
+    mutate(true_BC = case_when(BC %in% BCs ~ TRUE,
+                               T ~ FALSE)) %>%
+    dplyr::count(true_BC, wt=n) %>%
+    mutate(f=n/sum(n)) %>%
+    mutate(project=lib_data$condition[lib_data$Sample==i]) %>%
+    mutate(rep=as.character(lib_data$rep[lib_data$Sample==i])) %>%
+    mutate(PS=lib_data$PS[lib_data$Sample==i]) %>%
+    mutate(seq_adapters=lib_data$seq_adapters[lib_data$Sample==i])
+  
+  df_all <- rbind(df_all, df)
+}
+
+
+# plot unused barcode fractions normalized to nnn
+unuBC_nnn <- df_all %>% 
+  filter(true_BC == TRUE & project == "normalPS-normalP5-normalP7")
+
+unuBC_norm_nnn <- df_all %>%
+  left_join(unuBC_nnn %>% 
+              dplyr::rename("n_nnn" = n) %>% 
+              dplyr::rename("f_nnn" = f) %>% 
+              select(c(rep, n_nnn, f_nnn)),
+            by="rep") %>%
+  mutate(n_norm_nnn = n/n_nnn) %>%
+  mutate(f_norm_nnn = f/f_nnn)
+
+unu_nnn <- ggplot(data=unuBC_norm_nnn %>% filter(true_BC==TRUE & PS == "original"), 
+                  aes(y=f_norm_nnn, x=seq_adapters, color = seq_adapters))+
+  geom_quasirandom(width=0.1)+
+  facet_wrap(~PS, ncol=3)+ #maybe add , scales="free" ?(eva)
+  stat_summary(fun="mean",
+               geom="crossbar")+
+  coord_cartesian(ylim = c(0.9980954, 1.00537635))+
+  ylab("Relative assigned \n barcode fraction")+
+  xlab("") +
+  geom_hline(yintercept=1, linetype="dashed")+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values = color_vector) +
+  theme( axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         strip.text.x = element_text(size=13))
+
+unu_nnn
+
+```
+#### Mapping Fractions
+```{r Fig3_Mapping_Fractions}
+# List file paths matching pattern
+file_paths <- list.files(path = here("data/Adapter-Primer_test/"), 
+                         pattern = "\\.readspercell\\.txt$", 
+                         recursive = FALSE)
+
+# Extract metadata from file paths
+names <- str_extract(file_paths, "([^/]+)(?=\\.readspercell\\.txt)")
+rep <- str_extract(names, "[[:alpha:]]$")
+condition <- as.numeric(str_extract(names, "^[[:digit:]]+"))
+
+# Process each file and combine results
+process_file <- function(i) {
+  read.csv(here("data/Adapter-Primer_test", file_paths[i]), sep = "\t") %>%
+    filter(RG != "bad") %>%
+    mutate(project = names[i], rep = rep[i], condition = condition[i]) %>%
+    mutate(type = ifelse(type %in% c("Intron", "Exon"), "Exon + Intron", type)) %>%
+    summarise(N = sum(N), .by = c(type, RG, project, rep, condition)) %>%
+    group_by(RG) %>%
+    mutate(sum = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction = N / sum) %>%
+    group_by(project) %>%
+    mutate(sum_project = sum(N)) %>%
+    ungroup() %>%
+    group_by(type) %>%
+    mutate(sum_type = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction_type_project = sum_type / sum_project) %>%
+    select(RG, N, type, project, fraction, fraction_type_project, rep, condition)
+}
+
+map_fract_primers <- map_df(1:length(file_paths), process_file)
+
+# Join with lib_data
+map_fract_primers <- left_join(map_fract_primers %>% select(-rep), lib_data %>% select(-condition), by = c("project" = "Sample"))
+
+# Calculate fractions
+fractions <- map_fract_primers %>% 
+  filter(type == "Exon + Intron") %>%
+  left_join(
+    map_fract_primers %>% 
+      filter(condition == 1, type %in% c("Exon + Intron")) %>%
+      transmute(RG, rep, type, fraction_nnn = fraction),
+    by = c("RG", "rep", "type")
+  ) %>%
+  mutate(fraction_norm = fraction / fraction_nnn)
+
+# Plot the fractions
+plot_fract <- ggplot(data = fractions %>% filter(PS == "original"), aes(y = fraction_norm, x = seq_adapters)) +
+  geom_boxplot(aes(color=seq_adapters)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif",
+                     comparisons = list(c("P7-RS & P5+RS", "P7-RS & P5-RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5+RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5-RS")
+                     )) +
+  coord_cartesian(ylim = c(0.9563534, 1.11))+
+  ylab("Relative exon + intron fraction") +
+  xlab("")+
+  facet_grid(~ PS) +
+  theme_pubr(legend = "none")+
+  scale_color_manual(values = color_vector) +
+  theme( axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         strip.text.x = element_text(size=13))
+
+# Display the plot
+plot_fract
+```
+
+
+### Blocked & mirrored adapters
+
+
+#### Assigned barcodes
+```{r}
+unu_nnn2 <- ggplot(data=unuBC_norm_nnn %>% filter(true_BC==TRUE & PS != "original"), 
+                   aes(y=f_norm_nnn, x=seq_adapters, color = seq_adapters))+
+  geom_quasirandom(width=0.1)+
+  facet_wrap(~PS, ncol=3)+ #maybe add , scales="free" ?(eva)
+  stat_summary(fun="mean",
+               geom="crossbar")+
+  coord_cartesian(ylim = c(0.9980954, 1.00537635))+
+  ylab("Relative assigned \n barcode fraction")+
+  xlab("") +
+  geom_hline(yintercept=1, linetype="dashed")+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values = color_vector) +
+  theme( axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         strip.text.x = element_text(size=13))
+
+unu_nnn2
+
+```
+#### Mapping Fractions
+```{r Fig2_Mapping_Fractions2}
+
+# Plot the fractions
+plot_fract2 <- ggplot(data = fractions %>% filter(PS != "original"), 
+                      aes(y = fraction_norm, x = seq_adapters)) +
+  geom_boxplot(aes(color=seq_adapters)) +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif",
+                     comparisons = list(c("P7-RS & P5+RS", "P7-RS & P5-RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5+RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5-RS")
+                     )) +
+  coord_cartesian(ylim = c(0.9563534, 1.11))+
+  ylab("Relative exon + intron fraction") +
+  xlab("")+
+  facet_grid(~ PS) +
+  theme_pubr(legend = "none")+
+  scale_color_manual(values = color_vector) +
+  theme( axis.text.x = element_blank(),
+         axis.ticks.x = element_blank(),
+         strip.text.x = element_text(size=13))
+
+# Display the plot
+plot_fract2
+
+# get number for improvement of inex for blocked & longer P7
+fractions %>% filter(PS == "blocked" & seq_adapters=="P7+RS & P5+RS") %>% summarise(mean=mean(fraction_norm)) %>% pull(mean)
+```
+
+## Composite
+```{r}
+layout <- c("AB\nCD")
+
+plot_frat_unu <- 
+  unu_nnn + 
+  unu_nnn2 + 
+  plot_fract +
+  plot_fract2 +
+  plot_layout(
+    design = layout,
+    # heights = c(2.1, 1),
+    widths = c(1, 2))
+
+plot_frat_unu
+
+```
+
+## PTO improvements
+### Assigned Barcodes
+```{r}
+combined_data <- rbind(read_funnel1 %>% mutate(rep = "1"), 
+                       read_funnel2 %>% mutate(rep = "2")) %>%
+  filter(project != "old") %>%
+  mutate(project = factor(ifelse(project == "PTO", "improved", "improved \n w/o PTO"), levels = c("improved \n w/o PTO", "improved")))
+
+combined_data <- bind_rows(rbind(read_funnel1 %>% mutate(rep = "1"), 
+                                 read_funnel2 %>% mutate(rep = "2")), 
+                           rbind(nreads_barcodes %>% select(BC = XC, reads = n, project) %>%
+                                   mutate(rep = "1",
+                                          step = "Barcode assigned"),
+                                 nreads_barcodes2 %>% select(BC = XC, reads = n, project) %>%
+                                   mutate(rep = "2",
+                                          step = "Barcode assigned")
+                           )) %>%
+  filter(project != "old") %>%
+  mutate(project = factor(ifelse(project == "PTO", "improved", "improved \n w/o PTO"), levels = c("improved \n w/o PTO", "improved")))
+
+barcode_PTO <- combined_data %>%
+  filter(step == "Barcode assigned" & !is.na(BC)) %>%
+  left_join(
+    combined_data %>%
+      filter(step == "Trimmed & Filtered") %>%
+      select(rep, project, trimmed_reads = reads),
+    by = c("project", "rep")
+  ) %>%
+  mutate(fraction = reads / trimmed_reads *11) 
+
+# Calculate the average fraction
+barcode_PTO_avg <- barcode_PTO %>%
+  group_by(project) %>%
+  summarise(mean_fraction = round(sum(reads) / sum(unique(trimmed_reads)), 2)) %>%
+  unique()
+
+
+BC_PTO_plot <- ggplot() +
+  geom_boxplot(data = barcode_PTO, aes(y=fraction, x=project, color=project))+
+  geom_text(data = barcode_PTO_avg, aes(y=mean_fraction, x=project, label=mean_fraction))+
+  theme_pubr(legend = "none")+
+  labs(y = "Assigned Barcode fraction", x = "", color = "protocol")+
+  scale_color_manual(values = color_vector)+  
+  theme( axis.text.x = element_text(size=13))
+
+BC_PTO_plot
+
+# test
+# Shapiro test
+by(barcode_PTO$fraction, barcode_PTO$project, shapiro.test)
+# let's use Levene's and not F-test
+
+# Run Levene’s Test
+leveneTest(fraction ~ project, data = barcode_PTO)
+```
+
+### Total reads
+```{r}
+reads_PTO <- combined_data %>%
+  filter(step == "Total Reads") %>%
+  group_by(rep) %>%
+  mutate(reads_norm = reads / reads[project == "improved \n w/o PTO"]) %>%
+  # group_by(project) %>%
+  # summarise(mean = mean(reads_norm), 
+  #           min = min(reads_norm), 
+  #           max = max(reads_norm)) %>%
+  filter(project == "improved")
+
+reads_PTO_plot <- ggplot(data = reads_PTO, aes(y=reads_norm, x=project, fill=project))+
+  geom_point()+
+  # geom_errorbar(aes(ymin = min, ymax = max, x=project), 
+  #               color = "grey", 
+  #               width = 0.2) +
+    stat_summary(fun="mean",
+               geom="crossbar")+
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  theme_pubr(legend = "none")+
+  labs(y = "Relative total reads", 
+       x = "", 
+       fill = "Protocol")+
+  # scale_y_continuous(breaks = c(0.0, 0.25, 0.5, 0.75, 1, 1.25))+
+  scale_fill_manual(values = color_vector)+  
+  theme( axis.text.x = element_text(size=13))
+
+reads_PTO_plot
+
+# get number
+mean(reads_PTO$reads_norm)
+```
+
+### Composite
+```{r}
+PTO_plot <- reads_PTO_plot +
+  BC_PTO_plot +
+  plot_layout(widths = c(0.4, 1))
+
+PTO_plot
+```
+## Composite
+```{r}
+layout <- c("ABEF\nCDEF")
+
+lower_panel <-   unu_nnn + 
+  unu_nnn2 + 
+  plot_fract +
+  plot_fract2 +
+  reads_PTO_plot +
+  BC_PTO_plot +
+  plot_layout(
+    design = layout,
+    # heights = c(2.1, 1),
+    widths = c(1, 2, 0.25, 0.65)
+  )
+
+lower_panel
+# save
+ggsave(plot = lower_panel,
+       filename = here("figures/fig_2_lower_panel.pdf"),
+       height = 6.5,
+       width = 13
+)
+```
+
+
+# Figure 3
+## Funnel plot
+```{r funnel_plot}
+# plot
+funnel_plot <- ggplot()+
+  stat_summary(data=read_funnel_all, 
+               aes(y=step, x=reads_norm, color=project), 
+               fun.data = "mean_se",
+               fun.args = list(mult = 1),
+               geom="errorbar", 
+               position=position_dodge(0.2), 
+               width=.2,
+               size=.5) + 
+  geom_line(data=read_funnel_avg_all, aes(y=step, x=reads_rel, color=project, group=project), size=0.9) + 
+  scale_x_continuous(position = "top") + 
+  ylab("Processing Steps \n \u27F5") +
+  xlab("Relative Reads")+
+  scale_y_discrete(limits = rev(levels(read_funnel_all$step)))+
+  labs(color="Protocol")+
+  theme_pubr(legend = "bottom")+
+  scale_color_manual(values = color_vector)+
+  theme(axis.text.y = element_text(size=13),
+        legend.text=element_text(size=13),
+        legend.title = element_text(size=13))
+
+funnel_plot
+```
+
+### calculate changes (additive)
+```{r}
+# change in total reads (reads per flowcell)
+read_funnel_avg_all %>% 
+  filter(step == "Total Reads") %>%
+  pivot_wider(names_from = project, values_from = reads_rel) %>%
+  mutate(perc_change = (improved-original)/original*100) %>%
+  pull(perc_change)
+
+# change in index assignment
+read_funnel_avg_all %>% 
+  filter(step == "Index assigned") %>%
+  pivot_wider(names_from = project, values_from = reads_rel) %>%
+  mutate(perc_change = (improved-original)/original*100) %>%
+  pull(perc_change)
+
+# change in in ex  assignment
+read_funnel_avg_all %>% 
+  filter(step == "Exon & Intron selected") %>%
+  pivot_wider(names_from = project, values_from = reads_rel) %>%
+  mutate(perc_change = (improved-original)/original*100) %>%
+  pull(perc_change)
+
+# change reads during processing
+read_funnel_avg_all %>% 
+  filter(step %in% c("Index assigned", "UMI collapsed")) %>%
+  pivot_wider(names_from = step, values_from = reads_rel) %>%
+  transmute(project, processing_left = (`Index assigned`-`UMI collapsed`)/`Index assigned`) %>%
+  pivot_wider(names_from = project, values_from = processing_left) %>%
+  mutate(perc_change = (original-improved)/original*100) %>%
+  pull(perc_change)
+```
+
+
+## Funnel change
+```{r}
+read_funnel_dif1 <- bind_rows(read_funnel_all, 
+                              bind_rows(nreads_barcodes %>% select(BC = XC, reads = n, project) %>%
+                                          mutate(rep = 1,
+                                                 step = "Barcode assigned"),
+                                        nreads_barcodes2 %>% select(BC = XC, reads = n, project) %>%
+                                          mutate(rep = 2,
+                                                 step = "Barcode assigned"),
+                                        nreads_barcodes3 %>% select(BC = XC, reads = n, project) %>%
+                                          mutate(rep = 3,
+                                                 step = "Barcode assigned"),
+                                        nreads_barcodes4 %>% select(BC = XC, reads = n, project) %>%
+                                          mutate(rep = 4,
+                                                 step = "Barcode assigned")
+                              ) %>%
+                                mutate(project = factor(ifelse(project == "PTO", "improved", "original"), levels = c("original", "improved")),
+                                       step = factor(step, levels = c("Total Reads", "Index assigned", "Trimmed & Filtered", "Barcode assigned", "Exon & Intron selected", "UMI collapsed")))
+) %>%
+  filter(!(BC %in% unwanted_BCs)) %>% # remove 3 BCs per rep that were only used once
+  arrange(rep, step, BC)
+
+read_funnel_dif <- read_funnel_dif1 %>%
+  group_by(project, rep, BC) %>%
+  mutate(reads_before = lag(reads)) %>%
+  left_join(read_funnel_all %>% filter(step == "Trimmed & Filtered") %>% select(project, rep, trimmed_reads = reads),
+            by = c("project", "rep"),
+            relationship = "many-to-one") %>%
+  filter(!is.na(max_rep)) %>%
+  mutate(step_change = ifelse(!is.na(reads_before), reads/reads_before, reads_norm))
+
+
+read_funnel_dif_avg <- read_funnel_dif %>%
+  group_by(project, step) %>%
+  summarise(mean = mean(step_change-1))
+
+
+funnel_change <- ggplot()+
+  geom_col(read_funnel_dif_avg,
+           mapping = aes(y=mean, x=project, fill=project))+
+  stat_summary(data=read_funnel_dif, 
+               aes(y=step_change-1, x=project),
+               color = "black",
+               fun.data = "mean_se",
+               fun.args = list(mult = 1),
+               geom="errorbar", 
+               #position=position_dodge(0.2), 
+               width=.2,
+               size=.2) + 
+  coord_flip()+
+  facet_grid(step~.)+
+  theme_pubr(legend = "none")+
+  scale_fill_manual(values = color_vector)+
+  scale_x_discrete(limits=rev)+
+  labs(x = "", 
+       y = "Fraction of previous step")+  
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y =element_blank(),
+        strip.background = element_blank(),
+        strip.text.y = element_blank())+
+  scale_y_continuous(position = "right", breaks = c(0.0, -0.2, -0.4)) +
+  geom_hline(yintercept = 0, linetype="dashed")
+
+funnel_change
+```
+### calculate changes
+```{r}
+# change in total reads (reads per flowcell)
+read_funnel_dif_avg %>% 
+  filter(step == "Total Reads") %>%
+  mutate(mean=mean+1)%>%
+  pivot_wider(names_from = project, values_from = mean) %>%
+  mutate(perc_change = (improved-original)/original*100) %>%
+  pull(perc_change)
+
+# change in index assignment
+read_funnel_dif_avg %>% 
+  filter(step == "Index assigned") %>%
+  mutate(mean=mean+1)%>%
+  pivot_wider(names_from = project, values_from = mean) %>%
+  mutate(perc_change = (improved-original)/original*100) %>%
+  pull(perc_change)
+
+# change in index assignment
+read_funnel_dif_avg %>% 
+  filter(step == "Exon & Intron selected") %>%
+  mutate(mean=mean+1)%>%
+  pivot_wider(names_from = project, values_from = mean) %>%
+  mutate(perc_change = (improved-original)/original*100) %>%
+  pull(perc_change)
+
+# change reads during processing
+read_funnel_avg_all %>% 
+  filter(step %in% c("Index assigned", "UMI collapsed")) %>%
+  pivot_wider(names_from = step, values_from = reads_rel) %>%
+  transmute(project, processing_left = (`Index assigned`-`UMI collapsed`)/`Index assigned`) %>%
+  pivot_wider(names_from = project, values_from = processing_left) %>%
+  mutate(perc_change = (original-improved)/original*100) %>%
+  pull(perc_change)
+
+# reads lost by UMI collapsing
+read_funnel_dif_avg %>%
+  filter(step == "UMI collapsed")
+```
+
+## Flowcell yield
+```{r}
+FC_plot_main <- PS_FC_yields2 %>%
+  ggplot()+
+  geom_hline(aes(yintercept=100), linetype="dashed")+
+  geom_violin(aes(x=protocol,y=percent_exp_yield, fill=protocol))+
+  geom_quasirandom(aes(x=protocol, y=percent_exp_yield),size=2)+
+  ylab("Percentage of nominal flowcell output")+xlab("")+
+  theme_pubr(legend = "none")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()
+  )+
+  scale_fill_manual(values=color_vector)
+
+FC_plot_main
+
+# get numbers
+PS_FC_yields2 %>% 
+  group_by(protocol) %>%
+  summarise(percent_exp_yield = mean(percent_exp_yield)) %>%
+  pivot_wider(names_from = protocol, values_from = percent_exp_yield) %>%
+  mutate(perc_change = (improved-original)/original*100)
+
+# Mann–Whitney U test (Wilcoxon rank-sum test)
+test_result <- wilcox.test(percent_exp_yield ~ protocol, data = PS_FC_yields2)
+test_result
+```
+
+
+## Mapping Fraction
+```{r Mapping_Fractions}
+rpc_all_smpl_plot <- rbind(rpc_all_smpl %>% mutate(rep = 1),
+                           rpc_all_smpl2 %>% mutate(rep = 2),
+                           rpc_all_smpl3 %>% mutate(rep = 3),
+                           rpc_all_smpl4 %>% mutate(rep = 4)) %>%
+  filter(!(RG %in% unwanted_BCs)) %>% # remove 3 BCs per rep that were only used once
+  filter(type != "Ambiguity") %>%
+  filter(project != "new") %>%
+  mutate(project = ifelse(project == "PTO", "improved", "original")) %>%
+  mutate(across(project, factor, levels=c("original", "improved")))
+
+
+mapping_fract_reps <- ggplot(data=rpc_all_smpl_plot, aes(y=fraction, x=project, color=project))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test",
+                     ref.group = "original",
+                     paired = FALSE, 
+                     label = "p.signif") +
+  labs(y = "Fraction of Reads", x = "", color = "Protocol") +
+  theme_pubr(legend = "none")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text.x = element_text(size=13)) +
+  facet_wrap(~type, scale="free", nrow=1)+
+  scale_color_manual(values = color_vector)
+# geom_text(data = rpc_all_smpl_text,
+#           aes(label = round(fraction, 2),
+#               y = fraction + 0.03),
+#           nudge_x = 0.35)
+
+mapping_fract_reps
+
+# get numbers
+rpc_all_smpl_plot %>%
+  select(project, rep, type, fraction_type_project) %>%
+  unique() %>%
+  group_by(project, type) %>%
+  summarise(fraction_type_project = mean(fraction_type_project)) %>%
+  pivot_wider(names_from = project, values_from = fraction_type_project) %>%
+  mutate(perc_change = (improved-original)/original*100)
+
+```
+
+## UMI variance
+```{r UMI_Variance}
+umi_variance1 <- 
+  read_umi_raw %>%
+  mutate(rep = "1") %>%
+  left_join(ass_reads[,1:2] %>% unique, by="project")
+
+umi_variance2 <- 
+  read_umi_raw2 %>%
+  mutate(rep = "2") %>%
+  left_join(ass_reads2[,1:2] %>% unique, by="project")
+
+umi_variance3 <- 
+  read_umi_raw3 %>%
+  mutate(rep = "3") %>%
+  left_join(ass_reads3[,1:2] %>% unique, by="project")
+
+umi_variance4 <- 
+  read_umi_raw4 %>%
+  mutate(rep = "4") %>%
+  left_join(ass_reads4[,1:2] %>% unique, by="project")
+
+df_normalized <- rbind(umi_variance1, umi_variance2, umi_variance3, umi_variance4)%>%
+  filter(project != "new" & SampleID != "bad" & !(SampleID %in% unwanted_BCs)) %>%
+  mutate(project = ifelse(project == "PTO", "improved", "original")) %>%
+  mutate(across(project, factor, levels=c("original", "improved"))) %>%
+  filter(type %in% c("Intron+Exon")) %>%
+  group_by(rep) %>%
+  mutate(mean_umi_count_orig = (sum(umi_count[project == 'original']))/8,
+         normalized_umi_count = umi_count / mean_umi_count_orig)
+
+
+umi_variance_plot_abs <-   
+  ggplot(data = df_normalized,
+         aes(y=normalized_umi_count, x=project, color=project))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test",
+                     ref.group = "original",
+                     paired = FALSE, 
+                     label = "p.signif") +
+  geom_hline(yintercept = 1, linetype = "dashed") +
+  facet_grid(.~type)+ 
+  ylab("Relative number of UMIs")+
+  xlab("") +
+  theme_pubr(legend = "none")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        strip.text.x = element_text(size=13)) +
+  scale_color_manual(values = color_vector)
+
+umi_variance_plot_abs
+
+# percent change UMIs
+UMI_change_value <- df_normalized %>%
+  group_by(project) %>%
+  summarise(mean = mean(normalized_umi_count)) %>%
+  pivot_wider(names_from = project, values_from = mean) %>%
+  mutate(perc_change = (improved-original)/original*100) %>%
+  pull(perc_change)
+
+UMI_change_value
+
+# percent change costs
+(1-(100/(UMI_change_value+100)))*100
+```
+
+## Power plot
+```{r}
+df_mean <- readRDS(here("scripts/Power_Simulations/marginal_data.rds"))
+
+refval <- data.frame(L1 = c("FDR", "TPR"),
+                     ref = c(0.1, 0.8))
+
+power_marginal <- ggplot(data = df_mean %>% 
+                           filter(L1 %in% c("TPR", "FDR")) %>%
+                           mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+                         aes(x =factor(Var1),
+                             y = value,
+                             color = method)) +
+  stat_summary(fun.data = "mean_se",
+               size = 0.3,) +
+  stat_summary(aes(group = method),
+               fun = mean, geom="line")+
+  labs(x = "Samples per group", 
+       y = "Rate", 
+       color = "Protocol") +
+  # scale_y_continuous(labels = scales::percent_format(accuracy = 0.1)) +
+  # ylim(c(0,1))+
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')+
+  theme_pubr(legend = "none")+
+  facet_grid(L1~., 
+             scales = "free")+
+  scale_color_manual(values = color_vector)
+
+power_marginal
+```
+
+
+## Composite plot
+```{r Fig4_Composite}
+legend3 <- as_ggplot(ggpubr::get_legend(funnel_plot))
+
+funnel_plot <- funnel_plot + theme_pubr(legend = "none") +
+  theme(axis.text.y = element_text(size=13))
+
+funnel_and_co_a <- funnel_plot + 
+  funnel_change +
+  FC_plot_main +
+  plot_layout(widths = c(1, 0.5, 0.2))
+
+funnel_and_co_b <- 
+  mapping_fract_reps +
+  umi_variance_plot_abs +
+  power_marginal +
+  plot_layout(widths = c(2.2, 0.5, 1))
+
+funnel_and_co_c <- funnel_and_co_a / funnel_and_co_b
+funnel_and_co_c
+funnel_and_co <- funnel_and_co_c / legend3 + plot_layout(heights = c(1.1, 0.8, 0.025))
+funnel_and_co
+
+#save
+ggsave(funnel_and_co,
+       filename=here("figures/fig_3_composite.pdf"),
+       height=9,
+       width=13,
+       device = cairo_pdf
+)
+```
+
+# Figure 4
+Nanopore?
+
+# Supplement
+## DNase test
+```{r DNase_supplement}
+# RNA plot
+RNA_plot <- dnase_QF %>%
+  filter(modality == "RNA") %>%
+  ggplot(aes(y=mass_ng, x=condition, color=condition)) +
+  geom_boxplot() +
+  #facet_grid(~run, scales="free")+
+  #coord_flip() +
+  ylab("RNA [ng]")+
+  xlab("")+
+  theme_pubr(legend = "none") +
+  theme(
+    # legend.position = "none",
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank()
+  )+
+  scale_color_manual(values=color_vector)
+
+RNA_plot
+
+# DNA plot
+DNA_plot <- dnase_QF %>%
+  filter(modality == "DNA") %>%
+  ggplot(aes(y=mass_ng, x=condition, color=condition)) +
+  geom_boxplot() +
+  #coord_flip() +
+  labs(y = "DNA [ng]",
+       x = "",
+       color = "Protocol")+
+  theme_pubr() +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())+
+  scale_color_manual(values=color_vector)
+
+DNA_plot
+
+# Make composite
+legend4 <- as_ggplot(get_legend(DNA_plot))
+layout4 <- "AB\nCC"
+
+DNA_plot <- DNA_plot +
+  theme(legend.position = "none")
+
+DNase_test_supl <- RNA_plot + 
+  DNA_plot + 
+  legend4 +
+  plot_layout(heights = c(1, 0.05),
+              design = layout4)
+DNase_test_supl
+
+#save
+ggsave(DNase_test_supl,
+       filename=here("figures/fig_S2_DNase_test.pdf"),
+       height=5,
+       width=7
+)
+```
+
+
+## Reads P5 + P7
+```{r Supplement_Reads_P5}
+lib_data <- readRDS(here("data/Adapter-Primer_test/conc_readno_forR.rds")) %>%
+  mutate(PS = factor(ifelse(PS == "normal", "original", as.character(PS)),
+                     levels = c("original",
+                                "mirrored",
+                                "blocked")),
+         P5 = ifelse(P5 == "normal", "P5+RS", "P5-RS"),
+         P7 = ifelse(P7 == "normal", "P7-RS", "P7+RS"),
+         seq_adapters = factor(paste0(P7, " & ", P5), 
+                               levels = c("P7-RS & P5+RS", 
+                                          "P7-RS & P5-RS", 
+                                          "P7+RS & P5+RS", 
+                                          "P7+RS & P5-RS"))
+  )
+
+# transform data
+lib_data_P5 <- lib_data %>%
+  group_by(PS_P7_rep) %>%
+  mutate(ctrl_readno_P5 = ifelse(P5 == "P5+RS", readno, NA)) %>%
+  fill(ctrl_readno_P5, .direction = "downup") %>%
+  mutate(norm_readno_P5 = readno / ctrl_readno_P5) %>%
+  ungroup() %>%
+  filter(P5 != "P5+RS")
+
+# plot
+read_plot_P5 <- ggplot(data=lib_data_P5, aes(x=P5, y=norm_readno_P5))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_quasirandom(aes(color=PS), size=2)+
+  geom_hline(yintercept = 1, linetype = "dashed") + 
+  labs(color = "Ligation adapters", 
+       x = "", 
+       y = "Relative read number")+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values=color_vector)
+
+read_plot_P5
+
+# P7
+read_plot_P7_colored <- ggplot(data=lib_data_P7, aes(x=P7, y=norm_readno_P7))+
+  geom_boxplot(outlier.shape = NA)+
+  geom_quasirandom(aes(color=PS), size=2)+
+  stat_compare_means(method = "t.test",
+                     ref.group = "original",
+                     paired = FALSE, 
+                     label = "p.signif") +
+  geom_hline(yintercept = 1, linetype = "dashed") + 
+  ylab("Relative read number")+
+  xlab("")+
+  labs(color="Ligation adapters")+
+  theme_pubr(legend = "right")+
+  scale_color_manual(values=color_vector)
+
+reads_plot_supp <- read_plot_P5 + read_plot_P7_colored
+# save
+ggsave(plot = reads_plot_supp,
+       filename = here("figures/fig_S5_reads_P5-7.pdf"),
+       height = 5,
+       width = 6
+)
+```
+
+## Resuspension
+### Mapping fractions
+```{r}
+file_paths <- list.files(path = here("data/BBB_Resusp/"),
+                         pattern = "\\.readspercell\\.txt$", 
+                         recursive=F)
+projects <- str_extract(file_paths, "([^/]*)(?=\\.readspercell\\.txt)")
+
+map_fract_resusp <- map_df(seq_along(file_paths), function(i) {
+  read.csv(here("data/BBB_Resusp/", file_paths[i]), sep= "\t") %>%
+    filter(RG != "bad") %>%
+    mutate(project = projects[i]) %>%
+    group_by(RG) %>%
+    mutate(sum = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction = N/sum) %>%
+    group_by(project) %>%
+    mutate(sum_project = sum(N)) %>%
+    ungroup() %>%
+    group_by(type) %>%
+    mutate(sum_type = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction_type_project = sum_type/sum_project) %>%
+    select(c(RG, N, type, project, fraction, fraction_type_project))
+}) %>%
+  filter(type != "Ambiguity" & project != "BBB") %>%
+  mutate(type = factor(type, levels=c("Exon", "Intron", "Intergenic", "Unmapped"))) %>%
+  mutate(project = factor(ifelse(project == "Std", "original", "resuspended"), 
+                          levels = c("original", "resuspended")))
+
+resusp_mapfract_plot <- ggplot(data=map_fract_resusp, aes(y=fraction, x=project, color=project))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test",
+                     ref.group = "original",
+                     paired = FALSE, 
+                     label = "p.signif") +
+  labs(y = "Fraction of Reads", 
+       x = "", 
+       color = "Protocol") +
+  facet_wrap(~type, scales = "free", nrow=1)+
+  theme_pubr(legend = "top") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_color_manual(values = color_vector)
+
+resusp_mapfract_plot
+```
+
+### UMIs
+```{r}
+read_umi_raw <- map_df(projects, function(n) {
+  gene_counts <- read_rds(here("data/BBB_Resusp", paste0(n, ".bc.READcounts.rds"))) %>%
+    dplyr::rename(read_count = N, SampleID = RG)
+  umi_counts <- read_delim(here("data/BBB_Resusp", paste0(n, ".UMIcounts.txt"))) %>%
+    dplyr::rename(umi_count = Count)
+  
+  full_join(gene_counts, umi_counts, by = c("SampleID", "type")) %>%
+    mutate(project = n)
+}) 
+read_umi <- read_umi_raw %>%
+  filter(type %in% c("Exon", "Intron") & SampleID != "bad" & project != "BBB") %>%
+  group_by(project, SampleID) %>%
+  summarise(read_count = sum(read_count),
+            umi_count = sum(umi_count)) %>%
+  mutate(umi_fraction = umi_count / read_count)  %>%
+  mutate(project = factor(ifelse(project == "Std", "original", "resuspended"), 
+                          levels = c("original", "resuspended")))
+
+
+resusp_UMI_plot <- ggplot(data=read_umi, aes(y = umi_fraction, 
+                                             x = project, 
+                                             color = project))+
+  geom_boxplot()+
+  stat_compare_means(method = "t.test",
+                     ref.group = "original",
+                     paired = FALSE, 
+                     label = "p.signif") +
+  labs(y = "UMIs/Read", 
+       x = "", 
+       color = "Protocol") +
+  theme_pubr(legend = "none") +
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_color_manual(values = color_vector)
+
+
+```
+
+### Complexity
+```{r}
+complexity <- readRDS(here("data/BBB_Resusp/complexity.rds"))%>%
+  filter(project != "BBB" & ds_level == 1250000) %>%
+  group_by(project, RG) %>%
+  summarise(n = mean(n)) %>%
+  mutate(project = factor(ifelse(project == "Std", "original", "resuspended"), 
+                          levels = c("original", "resuspended")))
+
+resusp_complexity_plot <- ggplot(data = complexity, 
+                                 aes(y = n, x = project, color = project))+
+  geom_violin()+
+  stat_summary(fun.data = "mean_cl_boot")+
+  stat_compare_means(method = "t.test",
+                     ref.group = "original",
+                     paired = FALSE, 
+                     label = "p.signif") +
+  labs(y = "Detected Genes", 
+       x = "")+
+  theme_pubr(legend = "none")+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank()) +
+  scale_color_manual(values = color_vector)
+```
+
+### Composite
+```{r}
+legend6 <- as_ggplot(get_legend(resusp_mapfract_plot))
+
+resusp_mapfract_plot <- resusp_mapfract_plot + theme(legend.position = "none")
+
+resusp_plot_a <- resusp_mapfract_plot + 
+  resusp_UMI_plot +
+  resusp_complexity_plot +
+  plot_layout(widths = c(4, 1, 1))
+
+resusp_plot <- resusp_plot_a / legend6 + plot_layout(heights = c(1, 0.05))
+
+resusp_plot
+
+#save
+ggsave(resusp_plot,
+       filename=here("figures/fig_S1_resusp.pdf"),
+       height=5,
+       width=11
+)
+```
+
+## Fragmentation plot
+
+```{r}
+source(here("scripts/read_fragmentation_data.R"))
+
+frag_plot <- ggplot(data=df, aes(y=fract, x=time))+
+  geom_point(shape=4)+
+  geom_line(data=df_mean, aes(y=fract_mean, x=time))+
+  facet_wrap(~amount, nrow=1)+
+  ylab("Fraction selected")+
+  xlab("Time [min]")+
+  theme_pubr(legend = "none")+
+  xlim(0,8)
+
+ggsave(frag_plot,
+       filename=here("figures/fig_S4_fragmentation.pdf"),
+       height=2.8,
+       width=12
+)
+```
+
+## Other Power Plots
+### LFC
+```{r}
+df_rates_lfc <- readRDS(here("scripts/Power_Simulations/conditional_lfc.rds"))
+
+sample_cols<-c("#264653","#2a9d8f","#e9c46a","#f4a261","#e76f51")
+
+
+conditional_lfc <- ggplot(data = df_rates_lfc%>% 
+                            filter(L1 %in% c("TPR", "FDR")) %>%
+                            mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+                          aes(y=value, 
+                              x=Var1, 
+                              linetype=method, 
+                              color=Var2))+
+  stat_summary(aes(x = Var1,
+                   y = value,
+                   # color = factor(Var2),
+                   group = paste(method,Var2)
+  ),
+  fun = mean, geom="line") +
+  facet_grid(L1~., scales = "free")+
+  labs(x="Stratum absolute Log2 Fold Change",
+       y="Rate",
+       colour="Samples per group",
+       linetype="Protocol")+
+  theme_pubr()+
+  theme(axis.text.x=element_text(angle=60,hjust=1))+
+  scale_color_manual(values = sample_cols)+
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')
+
+conditional_lfc
+```
+### Mean Expression
+```{r}
+df_rates_mean <- readRDS(here("scripts/Power_Simulations/conditional_mean.rds"))
+
+conditional_mean <- ggplot(data = df_rates_mean %>%
+                             filter(L1 %in% c("TPR", "FDR")) %>%
+                             mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+                           aes(y=value, x=Var1, linetype=method, color=Var2))+
+  stat_summary(aes(x = Var1,
+                   y = value,
+                   # color = factor(Var2),
+                   group = paste(method,Var2)),
+               fun = mean, 
+               geom="line") +
+  facet_grid(L1~.)+
+  ylim(c(0,1))+
+  labs(x="Percentile Log2 Mean Expression",
+       y="Rate",
+       colour="Samples per group",
+       linetype="Protocol")+
+  theme_pubr(legend = "none")+
+  theme(axis.text.x=element_text(angle=60,
+                                 hjust=1))+
+  scale_color_manual(values = sample_cols)+
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')
+
+conditional_mean
+```
+
+### Composite
+```{r}
+legend7 <- as_ggplot(ggpubr::get_legend(conditional_lfc))
+
+conditional_lfc <- conditional_lfc + theme(legend.position = "none")
+
+power_plots_a <- conditional_lfc + 
+  conditional_mean +
+  plot_layout(widths = c(1, 1))
+
+power_plots <- power_plots_a / legend7 + plot_layout(heights = c(1, 0.07))
+
+power_plots
+
+#save
+ggsave(power_plots,
+       filename=here("figures/fig_S6_power.pdf"),
+       height=5,
+       width=11
+)
+```
+
+## Poolsize Intergenics
+```{r}
+setwd(here("data/FC2024_08_01_poolsize/03b_zUMIs_downsampled/"))
+file_paths9 <- list.files(pattern = "\\.readspercell\\.txt$", recursive = TRUE)
+
+names_poolsize <- c("320ng", "80ng", "920ng")
+
+intergenics <- map_df(seq_along(file_paths9), function(i) {
+  read_delim(file_paths9[i]) %>%
+    filter(type == "Intergenic") %>%
+    mutate(project = names_poolsize[i]) %>%
+    summarise(Intergenic_reads = sum(N), .by = c(project))
+})
+
+all <- map_df(seq_along(file_paths9), function(i) {
+  read_delim(file_paths9[i]) %>%
+    mutate(project = names_poolsize[i]) %>%
+    summarise(All_reads = sum(N), .by = c(project))
+})
+  
+colors_poolsize <- c("Intergenic: anti-sense" = "#FF6F61",
+            "Intergenic: other" = "#6B5B95")
+
+poolsize_intergenics_plot <- read.delim(here("scripts/intergenic_analysis/counts_antisense_intergenics_downsampled.txt")) %>%
+  dplyr::rename(Anti_sense_reads=Count) %>%
+  full_join(
+    intergenics,
+    by=c("Condition"="project")) %>%
+  full_join(
+    all,
+    by=c("Condition"="project")) %>%
+  mutate('Intergenic: anti-sense' = Anti_sense_reads / All_reads,
+         'Intergenic: other' = (Intergenic_reads-Anti_sense_reads) / All_reads) %>%
+  pivot_longer(cols = 5:6, names_to = "category", values_to = "fraction") %>%
+  mutate(Condition = factor(Condition, levels=c("80ng", "320ng", "920ng"))) %>%
+  ggplot(aes(y=fraction, x=Condition, fill=category))+
+  geom_col()+
+  theme_pubr(legend = "bottom")+
+  labs(y="Read fraction", x="", fill="")+
+  scale_fill_manual(values=colors_poolsize)+
+  guides(fill=guide_legend(nrow=2, byrow=TRUE))
+  
+```
+## Length bias
+```{r}
+length_bias_plot <- read_delim(here("scripts/intergenic_analysis/length_bias/counts_per_bin.txt"))%>%
+  mutate('Pool size' = factor(dataset, levels=c("80ng", "320ng", "920ng"))) %>%
+  filter(count_type == "umicount") %>%
+  filter(binning == "only2") %>%
+  ggplot(aes(y=proportion, x=length_bin, color=`Pool size`)) +
+  geom_boxplot() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(
+    y="UMI fraction", 
+    x="Transcript length"
+  )+
+  scale_color_manual(values = color_vector)+
+  theme_pubr(legend = "bottom")
+```
+
+## Composite
+```{r}
+poolsize_suppl <- poolsize_intergenics_plot + length_bias_plot + 
+  plot_layout(widths = c(0.6, 1))
+
+#save
+ggsave(poolsize_suppl,
+       filename=here("figures/fig_S3_poolsize.pdf"),
+       height=5,
+       width=7
+)
+```
+
+
+## Supplement - table with samples used with the improved protocol
+
+```{r}
+PS_FC_yields3 <- PS_FC_yields %>%
+  mutate(protocol=if_else(protocol=="old -RNA", true="old", false=protocol)) %>%
+  #filter(protocol %in% c("PTO", "old")) %>% 
+  subset(protocol == "PTO" & sample_subtype != "") %>% 
+  dplyr::select(FC, FC.type, species, sample_type, sample_subtype,  total, total., total.reads.FC) %>%
+  unique() %>% 
+  dplyr::rename(c(Flowcell = "FC", 'Flowcell type' = "FC.type", 'sample type'= "sample_type", 'sample subtype' ="sample_subtype",
+                  'total reads sample'="total", 'total reads sample [%]' = "total.",
+                  'total reads Flowcell'="total.reads.FC"))
+
+write.csv(PS_FC_yields3, 
+          here("figures/supp_primeseq_improved_samples_table.csv"), 
+          row.names=F)
+
+```
+

@@ -1,0 +1,155 @@
+---
+title: "Plot miscounting"
+author: "Felix Pförtner"
+date: "2025-07-17"
+format: 
+  html:
+    code-fold: false
+    toc: true
+    toc-depth: 4
+    theme: cosmo
+    embed-resources: true
+editor: visual
+---
+
+# Method
+
+1.  STAR
+    1.  `--outSAMprimaryFlag AllBestScore` gives primary flag to all with the best score, not just one random
+2.  Extract relevant reads from bam
+    1.  `-F 0x100` → not secondary alignment
+    2.  `uniq -d` → multiple of those
+3.  Convert bam to bed
+4.  Build exon & intron BED files from gtf
+5.  List reads of which at least one alignment overlaps with an exon
+6.  List reads of which at least one alignment overlaps with an intron but not an exon
+7.  List reads of which at least one alignment overlaps with neither intron nor exon
+8.  Tabulate which genes are on which lists
+9.  Pull zUMIs annotation for those reads from bam files
+
+```{r setup}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+counts_dir <- "STAR_out"
+counts_files <- list.files(counts_dir, pattern = "_counts\\.txt$", full.names = TRUE)
+
+# Read and combine all counts files
+data_list <- lapply(counts_files, read_tsv)
+# Add a column for the source file (project)
+for (i in seq_along(data_list)) {
+  data_list[[i]]$project <- sub("_allbest_counts\\.txt$", "", basename(counts_files[i]))
+}
+all_counts <- bind_rows(data_list) %>%
+  mutate(category = case_when((exon == TRUE | intron == TRUE) & anyIntergenic == TRUE ~ "InEx & Intergenic",
+                              exon == TRUE | intron == TRUE ~ "InEx only",
+                              anyIntergenic == TRUE ~ "Intergenic only",
+                              T ~ "other")
+  ) %>%
+  summarise(fraction_of_total_mapped_reads = sum(fraction_of_total_mapped_reads), .by=c(project, category))  %>%
+  mutate(
+    experiment = str_replace(project, "_[^_]+$", ""), # remove last _ and following for experiment
+    condition = str_extract(project, "[^_]+$")        # take last part after last _
+  )
+```
+
+## Combined Counts Table
+
+```{r}
+all_counts
+
+total_counts <- bind_rows(data_list) %>%
+  transmute(project, total_reads = round(n/fraction_of_total_mapped_reads)) %>%
+  distinct()
+```
+
+```{r}
+ggplot(data=all_counts, aes(y=fraction_of_total_mapped_reads, x=condition))+
+  stat_summary(fun = mean, geom = "crossbar", width = 0.5) +  
+  stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = sprintf("%.1f%%", ..y..*100)),
+    vjust = -0.5,
+    size = 3
+  ) +
+  geom_jitter(aes(color = category), width = 0.2, size = 2, alpha=0.2)+
+  facet_grid(.~category)+
+  # coord_flip()+
+  labs(x="", title="Alignments of reads mapping equally-best to multiple loci map to...")+
+  scale_color_manual(
+    values = c(
+      "InEx & Intergenic" = "red",
+      "InEx only" = "blue",
+      "Intergenic only" = "blue"
+    )
+  ) +
+  theme(legend.position = "none")
+```
+
+## Comparison to True Data
+
+```{r}
+#| message: false
+#| warning: false
+# Read all comparison summary files
+directory <- "/data/share/htp/prime-seq_NextGen/scripts/quantify_miscounting/STAR_out" # or set to your working directory if needed
+comparison_files <- list.files(directory, pattern = "_comparison_summary.txt$", full.names = TRUE)
+comparison_list <- lapply(comparison_files, readr::read_tsv)
+for (i in seq_along(comparison_list)) {
+  comparison_list[[i]]$project <- sub("_comparison_summary.txt$", "", basename(comparison_files[i]))
+}
+comparison_all <- dplyr::bind_rows(comparison_list) %>%
+  full_join(total_counts, by="project") %>%
+  mutate(fraction_of_total_mapped_reads = n/total_reads)%>%
+  mutate(
+    experiment = str_replace(project, "_[^_]+$", ""), # remove last _ and following for experiment
+    condition = str_extract(project, "[^_]+$")        # take last part after last _
+  )
+```
+
+```{r}
+# Plot: Grouped barplot of assignment vs. true_assignment
+ggplot(comparison_all, aes(x = condition, y = fraction_of_total_mapped_reads, color = true_assignment)) +
+  geom_jitter(width=0.2, alpha=0.4) +
+  stat_summary(fun = mean, geom = "crossbar", width = 0.5) +
+    stat_summary(
+    fun = mean,
+    geom = "text",
+    aes(label = sprintf("%.1f%%", ..y..*100)),
+    vjust = -0.5,
+    size = 3
+  ) +
+  facet_grid(.~assignment)+
+  labs(
+    title = "Comparison of zUMIs Assignment vs. True Assignment",
+    x = "",
+    color = "zUMIs assignment"
+  )
+```
+
+```{r}
+comparison_all_mean <- comparison_all %>%
+  summarise(mean_fraction = mean(fraction_of_total_mapped_reads), .by=c(assignment, true_assignment, condition)) %>%
+  dplyr::rename("category"="assignment") %>%
+  dplyr::rename("zUMIs_assignment"="true_assignment")
+
+ggplot()+
+  # stat_summary(fun = mean, geom = "crossbar", width = 0.5) +  
+  # stat_summary(
+  #   fun = mean,
+  #   geom = "text",
+  #   aes(label = sprintf("%.1f%%", ..y..*100)),
+  #   vjust = -0.5,
+  #   size = 3
+  # ) +
+
+  geom_col(data=comparison_all_mean, aes(y=mean_fraction, x=condition, fill=zUMIs_assignment), alpha=0.5)+
+  geom_jitter(data=all_counts, aes(y=fraction_of_total_mapped_reads, x=condition), width = 0.2, size = 2, alpha=1)+
+  facet_grid(.~category)+
+  # coord_flip()+
+  labs(x="", 
+       y="Fraction of mapped reads",
+       title="Alignments of reads mapping equally-best to multiple loci map to...")
+```

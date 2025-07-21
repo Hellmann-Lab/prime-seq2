@@ -1,0 +1,832 @@
+---
+title: "Rough look at old vs new vs PTO prime-seq data - BA"
+date: "03.06.2024"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(ShortRead)
+library(data.table)
+library(ggbeeswarm)
+library(ggsci)
+library(purrr)
+source("/data/home/felix/scripts_and_functions/theme_publication.R")
+```
+
+
+# Mapping fractions
+```{r}
+setwd("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs")
+file_paths <- list.files(pattern = "\\.readspercell\\.txt$", recursive=T)
+file_paths
+
+project <- str_extract(file_paths, "(...)(?=\\.readspercell\\.txt)")
+names <- project
+rpc_all_smpl <- data.frame(RG=character(),
+                      N=integer(),
+                      type=character(),
+                      project=numeric(),
+                      fraction=numeric(),
+                      fraction_Type_project=numeric())
+
+
+for (i in 1:length(file_paths)){
+  
+  rpc <- read.csv(file_paths[i], sep= "\t") %>%
+    filter(RG != "bad") %>%
+    mutate(project = project[i]) %>%
+    group_by(RG) %>%
+    mutate(sum = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction = N/sum) %>%
+    group_by(project) %>%
+    mutate(sum_project = sum(N)) %>%
+    ungroup() %>%
+    group_by(type) %>%
+    mutate(sum_type = sum(N)) %>%
+    ungroup() %>%
+    mutate(fraction_type_project = sum_type/sum_project) %>%
+    select(c(RG, N, type, project, fraction, fraction_type_project))
+  
+  
+  rpc_all_smpl <- rbind(rpc_all_smpl, rpc)
+  
+}
+rpc_all_smpl <- rpc_all_smpl %>%
+  mutate(across(project, factor, levels=c("old", "new", "PTO")))
+
+
+means <- rpc_all_smpl %>%
+  select(c(type, project, fraction_type_project)) %>%
+  distinct()
+
+mapping_fract_reps <- ggplot(data=rpc_all_smpl, aes(y=fraction, x=type, color=type))+
+  geom_boxplot()+
+  #geom_text(aes(label=fraction_type_project), nudge_y=60000)+
+  theme_minimal()+
+  ylab("Fraction of reads")+
+  xlab("")+
+  coord_flip()+
+  theme_Publication()+
+  # theme(axis.text  = element_text(size=13),
+  #       axis.title  = element_text(size=14),
+  #       strip.text.x = element_text(size = 14),
+  #       panel.background = element_blank(),
+  #       axis.line = element_line(colour = "black"),
+  #       #panel.grid.major = element_blank(),
+  #       #panel.grid.minor = element_blank(),
+  #       panel.border = element_rect(colour = "black", fill=NA, size=1),
+  #       #text = element_text(family = "Arial"),
+  #       legend.position = "none"
+  # )+
+  theme(legend.position = "none") +
+  facet_grid(.~project) + 
+  geom_text(data = means, aes(label = paste0(round(fraction_type_project*100, 0), "%"), 
+                              y = fraction_type_project + 0.1 + fraction_type_project * 0.05))+ 
+  scale_color_aaas()
+mapping_fract_reps
+
+# ggsave(plot=mapping_fract_reps, 
+#        filename = "/data/share/htp/prime-seq_NextGen/figures/fig_1_mapping_fractions.pdf",
+#        height = 3,
+#        width = 6)
+```
+new & PTO quite similar; 
+both 
+  higher Intron, Exon, Ambiguity, 
+  lower Intergenic, Unmapped
+
+
+# Total reads
+## Assigned index
+```{r}
+ass_reads <- read.delim(file="/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/deML_summary_to_read_in.txt") %>%
+  select(RG, assigned, total) %>%
+  dplyr::rename("project"="RG") %>%
+  filter(str_detect(project, "primeseq")) %>%
+  mutate(project = str_extract(project, "...$")) %>%
+  mutate(across(project, factor, levels=c("old", "new", "PTO"))) %>%
+  mutate(non_assigned = total-assigned, 
+         fract_non_assigned = paste(round(non_assigned/total, digits=3)*100, "%")) %>%
+  pivot_longer(cols=c(2,4), names_to = "category", values_to = "reads") %>%
+  mutate(fract_non_assigned = ifelse(category == "non_assigned", fract_non_assigned, NA))
+  
+ass_reads %>%
+  ggplot(aes(y=reads, x=project, fill=category)) +
+  geom_col()+
+  geom_text(aes(label=fract_non_assigned))+
+  xlab("")+
+  ylab("Total Reads")+
+  labs(fill="Index deML")
+
+
+```
+PTO > new > old
+assigned fractions same
+
+## Assigned barcodes
+```{r}
+# get data
+setwd("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/")
+file_paths1 <- list.files(pattern = "kept_barcodes_binned\\.txt$", recursive=T)
+file_paths1
+
+
+
+nreads <- data.frame(sample = NA,
+                     reads = NA)
+
+nreads_barcodes <- data.frame(xc = character(), 
+                              n = integer(),
+                              cellindex = integer(),
+                              project=character())
+
+for (i in 1:length(file_paths1)){
+  
+  barcodes <- read.csv(file_paths1[i])
+  barcodes$project <- names[i]
+  nreads[i,1] <- names[i]
+  nreads[i,2] <- sum(barcodes$n)
+  nreads_barcodes <- rbind(nreads_barcodes, barcodes)
+  
+
+}
+nreads_barcodes <- nreads_barcodes %>%
+  group_by(project) %>%
+  mutate(sum = sum(n)) %>%
+  ungroup() %>%
+  mutate(across(project, factor, levels=c("old", "new", "PTO")))
+# -----------------------------------------------------------------------
+
+# plot overall reads / sample
+ggplot(data=nreads, aes(y=reads, x=sample, fill=project)) +
+  geom_bar(stat="identity") +
+  coord_flip() +
+  theme_minimal()+
+  ylab("Reads with assigned Barcode")+
+  xlab("")+
+  theme(legend.position = "none")
+
+# plot in a different layout
+ggplot(data=nreads_barcodes, aes(y=n, x=project, color=project))+
+  #geom_boxplot(outlier.shape = NA)+
+  geom_point()+
+  coord_flip()+
+  stat_summary(fun.data = "mean_cl_boot")+
+  ylab("Reads with assigned Barcode")+
+  xlab("")+
+  theme(legend.position = "none")
+
+
+```
+mostly depended on overall reads
+
+
+## Compare assigned barcode to assigned index
+
+```{r}
+nreads_barcodes %>%
+  select(-c(XC, n, cellindex)) %>%
+  left_join(ass_reads %>% filter(category == "assigned") %>% select(project, reads), by="project") %>%
+  distinct() %>%
+  mutate(fraction_with_bc = sum / reads) %>%
+  ggplot() +
+  geom_point(aes(x = project, y = fraction_with_bc, color=project))+
+  xlab("")+
+  ylab("Assigned barcode \n ------------------------ \n Assigned index")+
+  theme(legend.position = "none")
+
+```
+
+
+
+# Unused barcoded
+same as above
+```{r}
+# df_all <- data.frame(true_BC=logical(),
+#                      n=integer(),
+#                      f=numeric(),
+#                      project=character(),
+#                      PS=character(),
+#                      seq_adapters=character())
+# 
+# samples <- names
+# for (i in samples){
+#   seq=as.data.frame(readFastq(dirPath = "/data/share/htp/prime-seq_NextGen/data/FC2024_05_01_PoP96_Quanti/02_trimming",
+#                               pattern = paste0("lane1_primeseq_PoP96_Quanti_", i, "_r1_trimmed.fq.gz"))@sread)
+#   colnames(seq)=c("seq")
+#   seq=seq %>%
+#     mutate(seq=as.character(seq)) %>%
+#     mutate(BC=substr(seq,1,12))
+#   
+#   BCs <- c(read.csv(file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_01_PoP96_Quanti/03_zUMIs/", 
+#                                 i, "/zUMIs_output/OldNewPTO_", i, ".BCbinning.txt"), 
+#                     sep=",")[,1],
+#            read.csv(file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_01_PoP96_Quanti/03_zUMIs/", 
+#                                 i, "/zUMIs_output/OldNewPTO_", i, "kept_barcodes.txt"),
+#                     sep=",")[,1])
+#   
+#   df <- seq %>% dplyr::count(BC) %>% arrange(-n) %>%
+#     mutate(true_BC = case_when(BC %in% BCs ~ TRUE,
+#                                T ~ FALSE)) %>%
+#     dplyr::count(true_BC, wt=n) %>%
+#     mutate(f=n/sum(n)) %>%
+#     mutate(project=i)
+#   
+#   df_all <- rbind(df_all, df)
+# }
+# 
+# 
+# df_all <- df_all %>%
+#   mutate(project = factor(project, levels=c("old", "new", "PTO")))
+# 
+# ggplot(data=df_all %>% filter(true_BC==FALSE), aes(y=f, x=project))+
+#   geom_col()+
+#   ylab("Assi \n ------------------------ \n Assigned index")+
+#   xlab("")
+# 
+# 
+# # plot unused barcode reads
+# # -> mostly affected by read no
+# ggplot(data=df_all %>% filter(true_BC==FALSE), aes(y=n, x=project))+
+#   geom_col()+
+#   ylab("Reads")+
+#   xlab("")
+```
+
+# Complexity
+```{r, eval=FALSE}
+source("/data/home/felix/Complexity.R")
+
+samples <- names
+
+setDTthreads(threads=30)
+
+complexity <- data.frame(RG=character(),
+                         n=integer(),
+                         project=character(),
+                         replicate=integer(),
+                         ds_level=integer())
+
+# reads: 4 490 276 - 5 952 002
+for (k in c(10000000, 1000000)){
+  print(k)
+  for (i in samples){
+    print(paste0("sample ", i))
+    for (j in 1:3){
+      print(paste0("rep ", j, " of 10"))
+      inputBAM = paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/",
+                        i,
+                        "/OldNewPTO_",
+                        i,
+                        ".filtered.Aligned.GeneTagged.sorted.bam"
+                        )
+        bccount = paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/",
+                         i,
+                         "/zUMIs_output/OldNewPTO_",
+                         i,
+                         "kept_barcodes_binned.txt"
+                         )
+      bccount <- fread(bccount)
+      bccount<-splitRG(bccount=bccount, mem= 50, hamdist = 0)
+      reads <- reads2genes_new_ds(featfile = inputBAM,
+                                  bccount  = bccount,
+                                  inex     = TRUE,
+                                  chunk    = 1,
+                                  cores    = 20,
+                                  downsampling = k)
+      print(nrow(reads))
+      reads <- reads %>% filter(!is.na(GE)) %>% dplyr::select(-UB, -ftype) %>% distinct() %>% dplyr::count(RG) %>% 
+        mutate(project=i) %>%
+        mutate(replicate=j) %>%
+        mutate(ds_level=k)
+      complexity <- rbind(complexity, reads)
+      rm(reads)
+    }
+  }
+}
+saveRDS(complexity, "/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/complexity.rds")
+```
+
+```{r}
+complexity <- readRDS("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/complexity.rds")
+complexity2 <- complexity %>%
+  mutate(across(project, factor, levels=c("old", "new", "PTO"))) %>%
+  mutate(ds_level = ifelse(ds_level == 10000000, "no downsampling", ds_level)) %>%
+  mutate(ds_level = factor(ds_level, levels = c("no downsampling", "1e+06")))
+
+a <- ggplot(complexity2, aes(y=n, x=project, fill=project))+
+  geom_violin()+
+  coord_flip()+
+  stat_summary(fun.data = "mean_cl_boot", geom = "pointrange",
+               colour = "black")+
+  facet_grid(~ds_level, scale="free")+
+  xlab("")+
+  ylab("Complexity (Detected Genes)")+
+  theme_Publication()+
+  theme(legend.position = "none")
+a
+```
+
+
+# Demultiplexing
+```{r}
+# load data
+deml <- read.delim(file="/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/deML_summary_to_read_in.txt") %>%
+    dplyr::rename("project"="RG") %>%
+  filter(str_detect(project, "primeseq")) %>%
+  mutate(project = str_extract(project, "...$")) %>%
+  mutate(across(project, factor, levels=c("old", "new", "PTO"))) %>%
+  mutate(total_fract = as.numeric(sub("%$", "", total.))/100) %>% select(-total.) %>%
+  mutate(assigned_fract = as.numeric(sub("%$", "", assigned.))/100) %>% select(-assigned.) %>%
+  mutate(unknown_fract = as.numeric(sub("%$", "", unknown.))/100) %>% select(-unknown.)%>%
+  mutate(conflict_fract = as.numeric(sub("%$", "", conflict.))/100) %>% select(-conflict.) %>%
+  mutate(wrong_fract = as.numeric(sub("%$", "", wrong.))/100) %>% select(-wrong.)
+
+# make it long
+deml_long <- deml %>% select(c(1, 7:11)) %>%
+  pivot_longer(cols=2:6, names_to="category", values_to="fraction") %>%
+  mutate(category=sub("_fract", "", category)) %>%
+  mutate(fraction = as.numeric(fraction))%>%
+  mutate(category = factor(category, levels=c("total", "conflict", "wrong", "unknown", "assigned")))
+
+# what does what mean:
+# "unknown": It's more likely that you belong to that sample than any other but that probability is low
+# "conflict": It's more likely that you belong to that sample than any other but the probability that you belong to another sample is almost equally likely
+# "wrong": It's more likely that you belong to that sample than any other but it seems your indices are mispaired
+
+# plot
+plot <- ggplot(deml_long %>% filter(category != "total"), aes(x = project, y=fraction, fill = category)) + 
+  geom_bar(stat="identity")+ 
+  #scale_x_discrete(limits=c("D2", "D0.5", "D1"))+
+  xlab("")+
+  ylab("Fraction of total reads")+
+  labs(fill="Demultiplexing category")+
+  scale_fill_manual(values = c("assigned" = "lightgreen", "unknown" = "grey70", "wrong" = "grey50", "conflict" = "grey30"))+
+  # coord_cartesian(ylim = c(0.5, 1))+
+  coord_flip()+
+  theme_Publication()
+
+plot
+plot_cut <- plot+
+  coord_flip(ylim = c(0.95, 1))
+
+# ggsave(plot, filename="/data/share/htp/prime-seq_NextGen/figures/fig_1_demultiplexing.pdf", height=2.5, width=12)
+# ggsave(plot_cut, filename="/data/share/htp/prime-seq_NextGen/figures/fig_1_demultiplexing_cut.pdf", height=2, width=6)
+```
+
+# overrepresented seqs in read 2
+```{r}
+combined_df <- data.frame()
+
+for (n in names) {
+  temp <- read.delim(
+    paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/overrepresented/", 
+           n, 
+           ".out.txt")) %>%
+    mutate(condition=n)
+  
+  combined_df <- bind_rows(combined_df, temp)%>%
+  mutate(across(condition, factor, levels=c("old", "new", "PTO")))
+}
+
+combined_df %>%
+  ggplot(aes(x=Sequence, y=Percentage))+
+  geom_col(size=2)+
+  facet_grid(condition~.)+
+  coord_flip()
+```
+both sequences get reduced, esp. GGGGG...
+
+
+# Filtering
+grep -E "Total read pairs.*|Read 2 with.*|Pairs that.*" "$input_file"
+```{r}
+trim_df <- data.frame()
+
+for (n in names) {
+  temp <- read_delim(paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/02_trimming/", 
+                            n, 
+                            ".txt"), 
+                     col_names = c("category", "reads")) %>% 
+    mutate(reads = str_replace_all(reads, " ", "")) %>% 
+    mutate(reads = str_replace_all(reads, ",", "")) %>% 
+    mutate(reads = str_replace_all(reads, "%\\)", "")) %>% 
+    separate_wider_delim(reads, delim = "(", names = c("reads", "percentage"), too_few = "align_start") %>%
+    mutate(condition=n)
+  
+  trim_df <- bind_rows(trim_df, temp)
+}
+trim_df <- trim_df %>%
+    mutate(across(condition, factor, levels=c("old", "new", "PTO"))) %>%
+    mutate(reads = as.numeric(reads), percentage = as.numeric(percentage))
+
+
+trim_df %>%
+  filter(category != "Total read pairs processed") %>%
+  ggplot(aes(y=percentage, x=category)) +
+  geom_col(size=2)+
+  facet_grid(condition~.)+
+  coord_flip()
+
+
+```
+reduction from old to new in both
+slight increase from new to PTO in both
+
+
+# BC binning
+```{r}
+bin_df <- data.frame()
+
+for (na in names) {
+  temp <- read_delim(paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/", 
+                            na, 
+                            "/zUMIs_output/OldNewPTO_", 
+                            na, 
+                            ".BCbinning.txt")) %>% 
+    mutate(project=na)
+  
+  bin_df <- bind_rows(bin_df, temp)
+}
+
+bin_df <- bin_df %>%
+    mutate(across(project, factor, levels=c("old", "new", "PTO")))
+
+
+bin_df %>%
+  group_by(project, hamming) %>%
+  reframe(total=sum(n)) %>%
+  ggplot()+
+  geom_col(aes(x=project, y=total, fill=project))+
+  facet_grid(.~hamming)+
+  theme(legend.position = "none")+
+  ggtitle("Barcodes binned by Hamming Distance")+
+  ylab("Reads")+
+  xlab("")
+
+# as fraction of total reads
+BC_binning_HD_plot <- bin_df %>%
+  group_by(project, hamming) %>%
+  reframe(total=sum(n)) %>%
+  left_join(nreads, by=c("project" = "sample")) %>%
+  mutate(bin_fraction = total/reads) %>%
+    mutate(across(project, factor, levels=c("old", "new", "PTO"))) %>%
+  ggplot()+
+  geom_col(aes(x=project, y=bin_fraction, fill=project), position="dodge")+
+    facet_grid(.~hamming)+
+  # facet_grid(hamming~., scales="free")+
+  ggtitle("Hamming Distance")+
+  ylab(expression(frac('Reads binned', 'Assigned barcode reads')))+
+  xlab("")+
+  theme_Publication()+
+  theme(legend.position = "none")
+
+# ggsave(plot = BC_binning_HD_plot, 
+#        filename = "/data/share/htp/prime-seq_NextGen/figures/fig_S_BC_binning.pdf",
+#        width=7,
+#        height=6)
+
+# per BC
+BC_binning_HD_plot
+bin_df_BC <- bin_df %>%
+  group_by(hamming, trueBC, project) %>%
+  reframe(n_binned = sum(n)) %>%
+  left_join(nreads_barcodes, by=c("project", "trueBC" = "XC")) %>%
+  mutate(bin_fraction = n_binned/n) %>%
+    mutate(across(project, factor, levels=c("old", "new", "PTO")))
+
+BC_binning_HD_plot_2 <- bin_df_BC %>%
+  ggplot()+
+  geom_boxplot(aes(x=project, y=bin_fraction, fill=project), position="dodge")+
+  #  facet_grid(.~hamming)+
+   facet_grid(hamming~., scales="free")+
+  ggtitle("Hamming Distance")+
+  ylab(expression(frac('Reads binned', 'Assigned barcode reads')))+
+  xlab("")+
+  theme_Publication()+
+  theme(legend.position = "none")
+
+BC_binning_HD_plot_2
+
+# ggsave(plot = BC_binning_HD_plot_2,
+#        filename = "/data/share/htp/prime-seq_NextGen/figures/fig_S_BC_binning_by_BC.pdf",
+#        width=4,
+#        height=7)
+
+# distribution
+bin_df %>%
+  left_join(nreads_barcodes %>% dplyr::rename("reads" = "n"), by=c("project", "trueBC" = "XC")) %>%
+  group_by(hamming, trueBC, project) %>%
+  summarise(n_fraction = sum(n) / sum(reads)) %>%
+  mutate(across(project, factor, levels=c("old", "new", "PTO"))) %>%
+  ggplot()+
+  geom_col(aes(y=n_fraction, x=reorder(trueBC, -n_fraction), fill=project))+
+  facet_grid(hamming~project, scale="free")+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  ggtitle("Distribution of reads per barcode")+
+  ylab(expression(frac('Reads binned', 'Assigned barcode reads')))+
+  xlab("Barcodes")+
+  theme(legend.position = "none")
+
+bin_df %>%
+  left_join(nreads_barcodes %>% dplyr::rename("reads" = "n"), by=c("project", "trueBC" = "XC")) %>%
+  group_by(hamming, trueBC, project) %>%
+  summarise(n_absolute = sum(n)) %>%
+  mutate(across(project, factor, levels=c("old", "new", "PTO"))) %>%
+  ggplot()+
+  geom_col(aes(y=n_absolute, x=reorder(trueBC, -n_absolute), fill=project))+
+  facet_grid(hamming~project, scale="free")+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  ggtitle("Distribution of reads per barcode")+
+  ylab('Reads binned')+
+  xlab("Barcodes")+
+  theme(legend.position = "none")
+```
+# Read / UMI count data
+```{r}
+# read in:
+read_umi <- data.frame()
+for (i in names) {
+  gene_counts <- read_rds(
+    file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/", 
+                i, 
+                "/zUMIs_output/stats/OldNewPTO_", 
+                i, 
+                ".bc.READcounts.rds")
+    ) %>%
+    dplyr::rename(read_count = N, SampleID = RG)
+  umi_counts <- read_delim(
+    file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/", 
+                i, 
+                "/zUMIs_output/stats/OldNewPTO_", 
+                i, 
+                ".UMIcounts.txt")
+    ) %>%
+    dplyr::rename(umi_count = Count)
+  read_umi <- rbind(read_umi, 
+                    full_join(gene_counts, umi_counts, by=c("SampleID", "type")) %>%
+                      mutate(project = i)
+                    )
+}
+read_umi_raw <- read_umi %>%
+  mutate(project = factor(project, levels=c("old", "new", "PTO")))
+# process
+read_umi <- read_umi %>%
+  filter(type %in% c("Exon", "Intron") & 
+           SampleID != "bad") %>%
+  mutate(umi_fraction = umi_count/read_count) %>%
+  mutate(project = factor(project, levels=c("old", "new", "PTO")))
+
+read_umi %>%
+  ggplot(aes(y=umi_fraction, x=project, color=project))+
+  geom_quasirandom()+
+  stat_summary(fun = mean,
+               geom = "crossbar")+
+  facet_grid(~type)+
+  theme(legend.position = "none")+
+  ylab(expression(frac(UMIs, Reads)))
+  
+read_umi_summary <- read_umi %>%
+  group_by(project) %>%
+  summarise(UMI = sum(umi_count))
+```
+
+
+
+```{r setup2, include=FALSE}
+library(plotly)
+```
+
+# Funnel
+```{r}
+read_funnel  <-
+  ass_reads %>%
+  filter(category == "assigned") %>%
+  select(project, total, "index_assigned" = "reads") %>%
+  full_join(
+    trim_df %>%
+      select(-percentage) %>%
+      pivot_wider(names_from = category, values_from = reads) %>%
+      group_by(condition) %>%
+      mutate(trimmed = `Total read pairs processed` - `Pairs that were too short`) %>%
+      select(project = condition, trimmed), by="project") %>%
+  pivot_longer(cols=-1, names_to = "step", values_to = "reads") %>%
+  bind_rows(
+    nreads_barcodes %>% select(BC = XC, barcode_assigned = n, project) %>%
+      full_join(rpc_all_smpl %>% 
+                  select(BC = RG, N, type, project) %>%
+                  ungroup() %>% 
+                  group_by(project, BC) %>% 
+                  filter(type %in% c("Intron", "Exon")) %>% 
+                  summarise(inex=sum(N)),
+                by=c("project", "BC")) %>%
+      full_join(read_umi %>% 
+                  select(BC = SampleID, UMI= umi_count, type, project) %>%
+                  group_by(project, BC) %>%
+                  filter(type %in% c("Intron", "Exon")) %>% 
+                  summarise(UMI=sum(UMI)),
+                by=c("project", "BC")) %>%
+      pivot_longer(cols=-c("BC", "project"), names_to = "step", values_to = "reads")) %>%
+  filter(project != "new") %>%
+  mutate(project = ifelse(project == "PTO", "prime-seq-opti", "prime-seq")) %>%
+  mutate(step = factor(step, levels = c("total", "index_assigned", "trimmed", "barcode_assigned", "inex", "UMI"))) %>%
+  mutate(max = max(reads)) %>%
+  group_by(project) %>%
+  mutate(max_project = max(reads)) %>%
+    group_by(project, BC) %>%
+  mutate(fractions = reads/max_project) %>%
+  mutate(fractions = ifelse(!is.na(BC), fractions*11, fractions)) %>%
+  #mutate(fractions = ifelse(is.na(fractions), 1, fractions)) %>%
+  mutate(fractions_rel_max = reads/max) %>%
+  mutate(fractions_rel_max = ifelse(!is.na(BC), fractions_rel_max*11, fractions_rel_max))
+
+read_funnel_avg  <-
+  ass_reads %>%
+  filter(category == "assigned") %>%
+  select(project, total, "index_assigned" = "reads") %>%
+  left_join(
+    trim_df %>%
+      select(-percentage) %>%
+      pivot_wider(names_from = category, values_from = reads) %>%
+      group_by(condition) %>%
+      mutate(trimmed = `Total read pairs processed` - `Pairs that were too short`) %>%
+      select(project = condition, trimmed), by="project") %>%
+  left_join(nreads, by=c("project" = "sample")) %>%
+  dplyr::rename("barcode_assigned" = "reads") %>%
+  left_join(rpc_all_smpl %>% 
+              ungroup() %>% 
+              group_by(project) %>% 
+              filter(type %in% c("Intron", "Exon")) %>% 
+              summarise(inex=sum(N)),
+            by="project") %>%
+  left_join(read_umi_summary, by="project") %>%
+  pivot_longer(cols=-1, names_to = "step", values_to = "reads") %>%
+  filter(project != "new") %>%
+  mutate(project = ifelse(project == "PTO", "prime-seq-opti", "prime-seq")) %>%
+  mutate(step = factor(step, levels = c("total", "index_assigned", "trimmed", "barcode_assigned", "inex", "UMI"))) %>%
+  mutate(max = max(reads)) %>%
+  group_by(project) %>%
+  mutate(max_project = max(reads)) %>%
+  mutate(fractions = reads/max_project) %>%
+  #mutate(fractions = ifelse(is.na(fractions), 1, fractions)) %>%
+  mutate(fractions_rel_max = reads/max)
+
+```
+
+```{r}
+read_funnel %>% 
+  ggplot()+
+  geom_line(aes(y=reads, x=step, color=project, group=project))
+
+read_funnel %>% 
+  ggplot()+
+  geom_line(aes(y=fractions, x=step, color=project, group=project))+
+  ylab("Fraction of total")
+
+read_funnel %>% 
+  ggplot()+
+  geom_line(aes(y=fractions_rel_max, x=step, color=project, group=project))+
+  ylab("Fraction of max total")
+
+
+
+
+read_funnel %>%  
+  filter(project == "old") %>%
+  plot_ly(
+    type = "funnel",
+    y = ~step,
+    x = ~reads,
+    textinfo = "value+percent initial")
+
+read_funnel %>%  
+  filter(project == "new") %>%
+  plot_ly(
+    type = "funnel",
+    y = ~step,
+    x = ~reads,
+    textinfo = "value+percent initial")
+
+read_funnel %>%  
+  filter(project == "PTO") %>%
+  plot_ly(
+    type = "funnel",
+    y = ~step,
+    x = ~reads,
+    textinfo = "value+percent initial")
+
+```
+
+# non-coding fractions ----
+```{r}
+# read count
+breakdown_reads <- map_df(names, function(i) {
+  readRDS(paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/", 
+                 i, 
+                 "/zUMIs_output/stats/OldNewPTO_", 
+                 i, 
+                 ".breakdown_readcount.rds")) %>%
+    mutate(project = i)
+})
+breakdown_reads %>%
+  mutate(project = factor(project, levels = c("old", "new", "PTO")))%>%
+  ggplot(aes(y=Fract, x=project, color=project)) + 
+  geom_boxplot() +
+  facet_wrap(~type, scales="free_y") +
+  theme(legend.position="none")+
+  ylab("Fraction of Reads")+
+  xlab("")
+  
+
+# umi count
+breakdown_umi <- map_df(names, function(i) {
+  readRDS(paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/", 
+                 i, 
+                 "/zUMIs_output/stats/OldNewPTO_", 
+                 i, 
+                 ".breakdown_umicount.rds")) %>%
+    mutate(project = i)
+})
+breakdown_umi %>%
+  mutate(project = factor(project, levels = c("old", "new", "PTO")))%>%
+  ggplot(aes(y=Fract, x=project, color=project)) + 
+  geom_boxplot() +
+  facet_wrap(~type, scales="free_y") +
+  theme(legend.position="none")+
+  ylab("Fraction of UMIs")+
+  xlab("")
+```
+
+
+
+# Possible publication figures ----
+```{r}
+source("/home/felix/scripts_and_functions/theme_publication.R")
+
+# read funnel
+#funnel_plot <- read_funnel %>% 
+ggplot()+
+  stat_summary(data=read_funnel, 
+               aes(y=step, x=fractions_rel_max, color=project), 
+               fun.data = "mean_cl_boot", 
+               geom="errorbar", 
+               position=position_dodge(0.2), 
+               width=.2,
+               size=.2) + 
+  geom_line(data=read_funnel_avg, aes(y=step, x=fractions_rel_max, color=project, group=project)) + 
+  scale_x_continuous(position = "top") + 
+  ylab("Processing step") + 
+  xlab("Number of Reads")+
+  scale_y_discrete(limits = rev(levels(read_funnel$step)))+
+  labs(color="Protocol")
+
+
+
+# ggsave(funnel_plot, 
+#        filename="/data/share/htp/prime-seq_NextGen/figures/fig_1_funnel_plot.pdf", 
+#        height=6, 
+#        width=5
+#        )
+
+funnel_plot <- read_funnel %>% 
+  mutate(step = factor(step, levels = rev(levels(step))))%>% 
+  ggplot()+
+  geom_line(aes(y=step, x=fractions, color=project)) + 
+  scale_x_continuous(position = "top") + 
+  ylab("Processing step") + 
+  xlab("Read Fraction")
+
+# ggsave(funnel_plot, 
+#        filename="/data/share/htp/prime-seq_NextGen/figures/fig_1_funnel_plot_relative.pdf", 
+#        height=6, 
+#        width=5
+#        )
+
+
+# umi count variance
+umi_variance_plot <- 
+  read_umi_raw %>%
+  filter(type %in% c("Exon", "Intron", "Intron+Exon")) %>%
+  ggplot(aes(y=umi_count, x=project, color=project))+
+  geom_boxplot(notch = T, outlier.shape = NA)+
+  geom_quasirandom()+
+  facet_grid(~type)+ 
+  theme_Publication()+
+  ylab("Number of UMIs")+
+  theme(legend.position = "none")
+
+# ggsave(umi_variance_plot, 
+#        filename="/data/share/htp/prime-seq_NextGen/figures/fig_2_umi_variance_plot.pdf", 
+#        height=5, 
+#        width=12
+#        )
+
+```
+

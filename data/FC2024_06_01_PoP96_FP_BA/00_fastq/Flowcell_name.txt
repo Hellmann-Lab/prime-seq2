@@ -1,0 +1,2 @@
+project name: /data/share/htp/prime-seq_NextGen/data/FC2024_06_01_PoP96_FP_BA
+flow cell name: @VL00272:279:2222V2NNX:1:1101:29999:1120 1:N:0:0

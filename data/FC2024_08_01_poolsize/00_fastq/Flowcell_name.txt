@@ -1,0 +1,2 @@
+project name: /data/share/htp/prime-seq_NextGen/data/FC2024_08_01_poolsize
+flow cell name: @VL00272:298:AACMFLNHV:1:1101:32395:1000 2:N:0:0

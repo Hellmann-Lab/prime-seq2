@@ -1,0 +1,8 @@
+PoP64_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_11_01_PoP64_1/02_trimming/lane1_prime-seq_PoP64_PTO_corrected_r2_trimmed.fq.gz
+PoP64_old	/data/share/htp/prime-seq_NextGen/data/FC2024_11_01_PoP64_1/02_trimming/lane1_prime-seq_PoP64_old_corrected_r2_trimmed.fq.gz
+PoP96_3_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_08_01_PoP96III/02_trimming/lane1_primeseq_PoP96III_PTO_r2_trimmed.fq.gz
+PoP96_3_old	/data/share/htp/prime-seq_NextGen/data/FC2024_08_01_PoP96III/02_trimming/lane1_primeseq_PoP96III_old_r2_trimmed.fq.gz
+PoP96_2_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_06_01_PoP96_FP_BA/02_trimming/lane1_primeseq_PoP96_FP_PTO_r2_trimmed.fq.gz
+PoP96_2_old	/data/share/htp/prime-seq_NextGen/data/FC2024_06_01_PoP96_FP_BA/02_trimming/lane1_primeseq_PoP96_FP_old_r2_trimmed.fq.gz
+PoP96_1_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/02_trimming/lane1_primeseq_PoP96_BA_PTO_r2_trimmed.fq.gz
+PoP96_1_old	/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/02_trimming/lane1_primeseq_PoP96_BA_old_r2_trimmed.fq.gz

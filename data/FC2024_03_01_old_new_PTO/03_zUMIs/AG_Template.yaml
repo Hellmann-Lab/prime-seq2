@@ -1,0 +1,50 @@
+project: AG Template
+sequence_files:
+  file1:
+    name: /data/htp/MyCoolProject/Prime-seq_MyCoolProject/02_trimming/Template_r1_trimmed.fq.gz
+    base_definition:
+    - BC(1-12)
+    - UMI(13-28)
+  file2:
+    name: /data/htp/MyCoolProject/Prime-seq_MyCoolProject/02_trimming/Template_r2_trimmed.fq.gz
+    base_definition: cDNA(2-93)
+reference:
+  STAR_index: /data/sfb1243cs/ngs/genomes/Human/hg38/STAR7idx_Gencode_noGTF/
+  GTF_file: /data/sfb1243cs/ngs/genomes/Human/hg38/gencode.v35.primary_assembly.annotation.gtf
+  additional_STAR_params: ''
+  additional_files:
+out_dir: /data/htp/MyCoolProject/Prime-seq_MyCoolProject/03_zUMIs/
+num_threads: 30
+mem_limit: 200
+filter_cutoffs:
+  BC_filter:
+    num_bases: 3
+    phred: 20
+  UMI_filter:
+    num_bases: 4
+    phred: 20
+barcodes:
+  barcode_num: ~
+  barcode_file: /data/htp/MyCoolProject/Prime-seq_MyCoolProject/03_zUMIs/bc_info.txt
+  barcode_sharing: ''
+  automatic: no
+  BarcodeBinning: 1
+  nReadsperCell: 100
+  demultiplex: no
+counting_opts:
+  introns: yes
+  downsampling: '0'
+  strand: 1
+  Ham_Dist: 0
+  write_ham: no
+  velocyto: no
+  primaryHit: yes
+  twoPass: yes
+make_stats: yes
+which_Stage: Filtering
+Rscript_exec: Rscript
+STAR_exec: STAR
+pigz_exec: pigz
+samtools_exec: samtools
+zUMIs_directory: /data/share/htp/prime-seq_Data_Processing/00_tools/zUMIs_2.9.7e
+read_layout: SE

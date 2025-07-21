@@ -1,0 +1,4 @@
+Condition	Count
+80ng	40949
+320ng	68051
+920ng	138777

@@ -1,0 +1,153 @@
+---
+title: ""
+date: "21.06.2024"
+output:
+  html_document:
+    df_print: paged
+  html_notebook: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(ShortRead)
+library(data.table)
+library(ggbeeswarm)
+library(ggsci)
+source("/data/home/felix/scripts_and_functions/theme_publication.R")
+```
+
+# Read / UMI count data unbinned
+```{r}
+names <- c("old", "new", "PTO")
+# read in:
+read_umi <- data.frame()
+for (i in names) {
+  gene_counts <- read_rds(
+    file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/", 
+                i, 
+                "/zUMIs_output/stats/OldNewPTO_", 
+                i, 
+                ".bc.READcounts.rds")
+    ) %>%
+    dplyr::rename(read_count = N, SampleID = RG)
+  umi_counts <- read_delim(
+    file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/", 
+                i, 
+                "/zUMIs_output/stats/OldNewPTO_", 
+                i, 
+                ".UMIcounts.txt")
+    ) %>%
+    dplyr::rename(umi_count = Count)
+  read_umi <- rbind(read_umi, 
+                    full_join(gene_counts, umi_counts, by=c("SampleID", "type")) %>%
+                      mutate(project = i)
+                    )
+}
+read_umi_raw <- read_umi %>%
+  mutate(project = factor(project, levels=c("old", "new", "PTO")))
+# process
+read_umi <- read_umi %>%
+  filter(type %in% c("Exon", "Intron") & 
+           SampleID != "bad") %>%
+  mutate(umi_fraction = umi_count/read_count) %>%
+  mutate(project = factor(project, levels=c("old", "new", "PTO")))
+
+read_umi %>%
+  ggplot(aes(y=umi_fraction, x=project, color=project))+
+  geom_quasirandom()+
+  stat_summary(fun = mean,
+               geom = "crossbar")+
+  facet_grid(~type)+
+  theme(legend.position = "none")+
+  ylab(expression(frac(UMIs, Reads)))
+  
+
+read_umi_summary <- read_umi %>%
+  group_by(project) %>%
+  summarise(UMI = sum(umi_count))
+```
+
+
+# Read / UMI count data binned
+```{r}
+names <- c("old", "new", "PTO")
+# read in:
+read_umi_binned <- data.frame()
+for (i in names) {
+  gene_counts <- read_rds(
+    file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs_UMIbin/", 
+                i, 
+                "/zUMIs_output/stats/OldNewPTO_", 
+                i, 
+                ".bc.READcounts.rds")
+    ) %>%
+    dplyr::rename(read_count = N, SampleID = RG)
+  umi_counts <- read_delim(
+    file=paste0("/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs_UMIbin/", 
+                i, 
+                "/zUMIs_output/stats/OldNewPTO_", 
+                i, 
+                ".UMIcounts.txt")
+    ) %>%
+    dplyr::rename(umi_count = Count)
+  read_umi_binned <- rbind(read_umi_binned, 
+                    full_join(gene_counts, umi_counts, by=c("SampleID", "type")) %>%
+                      mutate(project = i)
+                    )
+}
+read_umi_raw_binned <- read_umi_binned %>%
+  mutate(project = factor(project, levels=c("old", "new", "PTO")))
+# process
+read_umi_binned <- read_umi_binned %>%
+  filter(type %in% c("Exon", "Intron") & 
+           SampleID != "bad") %>%
+  mutate(umi_fraction = umi_count/read_count) %>%
+  mutate(project = factor(project, levels=c("old", "new", "PTO")))
+
+read_umi_binned %>%
+  ggplot(aes(y=umi_fraction, x=project, color=project))+
+  geom_quasirandom()+
+  stat_summary(fun = mean,
+               geom = "crossbar")+
+  facet_grid(~type)+
+  theme(legend.position = "none")+
+  ylab(expression(frac(UMIs, Reads)))
+
+read_umi_summary <- read_umi_binned %>%
+  group_by(project) %>%
+  summarise(UMI = sum(umi_count))
+```
+
+```{r}
+all <- read_umi[,-6] %>% rename(unbinned = umi_count) %>%
+  full_join(read_umi_binned[,-6] %>% rename(binned = umi_count), 
+            by = c("SampleID", "type", "project", "read_count")) %>%
+  mutate(binned_decrease = binned-unbinned) #%>%
+  # pivot_longer(cols = c(4, 6),
+  #              names_to = "method",
+  #              values_to = "umi_count")
+
+all %>%
+  ggplot(aes(y=binned_decrease/unbinned*100, x=project))+
+  geom_boxplot()+
+  facet_wrap(~type)
+
+all %>%
+  ggplot(aes(y=unbinned, x=project))+
+  geom_boxplot()+
+  stat_summary(fun.data = "mean_cl_normal")+
+  facet_wrap(~type)
+
+all %>%
+  group_by(type, project) %>%
+  summarise(n = sum(unbinned)) %>%
+  arrange(-n)
+```
+
+
+
+
+
+

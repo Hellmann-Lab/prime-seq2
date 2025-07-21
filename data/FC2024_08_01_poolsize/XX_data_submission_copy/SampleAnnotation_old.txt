@@ -1,0 +1,12 @@
+SampleBC	Name	row	column	project		condition	rep
+CTGGACTAACAA	oldA1	A	1	old_1		old	1
+TTGTAAGCGGAA	oldA4	A	4	old_4		old	4
+TCGGCTGTCCAA	oldB1	B	1	old_1		old	1
+AACAGGTTCCAA	oldB4	B	4	old_4		old	4
+GTTGTGCTCCAA	oldC1	C	1	old_1		old	1
+GCTACTGGTCCA	oldC4	C	4	old_4		old	4
+AAGTGGTTGCGG	oldD2	D	2	old_2		old	2
+AGTAGTTAGCCG	oldE2	E	2	old_2		old	2
+AACAGCGCCATG	oldF2	F	2	old_2		old	2
+AGAAGCGTTCTA	oldG3	G	3	old_3		old	3
+ACCTGTGGACGT	oldH3	H	3	old_3		old	3
