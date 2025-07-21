@@ -38,6 +38,7 @@ scripts/Power_Simulations/*PTO.rds
 **.err
 **.loom
 **.bed
+**chimera.rds
 **/fails_and_unknown/
 **/*_STAR*/
 **/XX_data_submission/
