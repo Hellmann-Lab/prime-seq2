@@ -1,0 +1,9 @@
+project	bam_path	BC_WL_path
+PoP64_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_11_01_PoP64_1/03_zUMIs/PTO/PoP64_PTO.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_11_01_PoP64_1/03_zUMIs/PTO/BCs_PTO.txt
+PoP64_old	/data/share/htp/prime-seq_NextGen/data/FC2024_11_01_PoP64_1/03_zUMIs/old/PoP64_old.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_11_01_PoP64_1/03_zUMIs/old/BCs_old.txt
+PoP96_3_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_08_01_PoP96III/03_zUMIs/PTO/OldNewPTO_PTO.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_08_01_PoP96III/03_zUMIs/BCs_PTO.txt
+PoP96_3_old	/data/share/htp/prime-seq_NextGen/data/FC2024_08_01_PoP96III/03_zUMIs/old/OldNewPTO_old.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_08_01_PoP96III/03_zUMIs/BCs_old.txt
+PoP96_2_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_06_01_PoP96_FP_BA/03_zUMIs/PTO/OldNewPTO_PTO.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_06_01_PoP96_FP_BA/03_zUMIs/BCs_PTO.txt
+PoP96_2_old	/data/share/htp/prime-seq_NextGen/data/FC2024_06_01_PoP96_FP_BA/03_zUMIs/old/OldNewPTO_old.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_06_01_PoP96_FP_BA/03_zUMIs/BCs_old.txt
+PoP96_1_PTO	/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/PTO/OldNewPTO_PTO.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/BCs_PTO.txt
+PoP96_1_old	/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/old/OldNewPTO_old.filtered.Aligned.GeneTagged.sorted.bam	/data/share/htp/prime-seq_NextGen/data/FC2024_05_02_PoP96_BA/03_zUMIs/BCs_old.txt
