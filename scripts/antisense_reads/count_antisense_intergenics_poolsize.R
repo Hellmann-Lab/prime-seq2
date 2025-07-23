@@ -8,7 +8,7 @@ library(tibble)  # For data frame manipulation
 library(here)    # For consistent file path handling
 
 # Set working directory using here package
-here::i_am("scripts/antisense_reads/count_antisense_intergenics.R")
+here::i_am("scripts/antisense_reads/count_antisense_intergenics_poolsize.R")
 setwd(here("scripts/antisense_reads"))
 
 # Source custom functions from zUMIs
@@ -46,46 +46,39 @@ source("/data/share/htp/zUMIs-Prime/zUMIs/misc/featureCounts.R")
 # Define the path to the featureCounts library
 fcounts_clib <- "/data/share/htp/zUMIs-Prime/zUMIs/misc/fcountsLib2"
 
-# Read BAM files from the configuration file
-bam_files <- read.table(here("scripts/quantify_downstream/bam_files.txt"), 
-                       header = TRUE, 
-                       sep = "\t", 
-                       stringsAsFactors = FALSE)
-
-# Extract project names, BAM paths, and barcode file paths
-projects <- bam_files$project
-bam_paths <- bam_files$bam_path
-barcode_paths <- bam_files$BC_WL_path
+# Define experimental conditions
+conditions <- c("80ng", "320ng", "920ng")
 
 # Step 1: Create intergenic BAM files with barcode filtering
 # This section filters the original BAM files to extract reads that are unassigned to any features
 # (intergenic reads) and contain project-specific barcodes using samtools
-for (i in 1:length(projects)) {
-  project_name <- projects[i]
-  bam_path <- bam_paths[i]
-  barcode_file <- barcode_paths[i]
+for (c in conditions) {
+  # Define barcode file path for this condition
+  barcode_file <- paste0("/home/felix/prime-seq_NextGen/data/FC2024_08_01_poolsize/03_zUMIs/BCs_", c, ".txt")
   
-  # Extract intergenic reads and filter for project barcodes in one command
   cmd <- paste0(
     "\"/data/home/felix/samtools-1.21/samtools\" view -h -e '[ES] == \"Unassigned_NoFeatures\" && [IS] == \"Unassigned_NoFeatures\"' -x ES -x IS -D BC:\"", barcode_file, "\" ",
-    "\"", bam_path, "\" >  \"",
+    "\"", 
+    here("data/FC2024_08_01_poolsize/03_zUMIs/"),
+    c,
+    "/poolsize_",
+    c,
+    ".filtered.Aligned.GeneTagged.sorted.bam\" >  \"",
     here("scripts/antisense_reads"),
     "/",
-    project_name,
+    c,
     "_intergenic.bam\""
   )
-  cat("Processing", project_name, ":", cmd, "\n")  # Print command for debugging
+  cat("Processing", c, ":", cmd, "\n")  # Print command for debugging
   system(cmd)
 }
 
 # Step 2: Process intergenic reads
 # This section uses featureCounts to analyze the intergenic reads for both exonic and intronic regions
-for (i in 1:length(projects)) {
-  project_name <- projects[i]
-  
+for (c in conditions) {
   # Define input BAM file path
   abamfile <- paste0(here("scripts/antisense_reads/"), 
-                     project_name, 
+                     c, 
                      "_intergenic.bam"
                      )
   
@@ -107,7 +100,7 @@ for (i in 1:length(projects)) {
   
   # Define path for intron analysis
   intron_in <- here("scripts/antisense_reads",
-                    paste0(project_name, 
+                    paste0(c, 
                     "_intergenic.bam.featureCounts.bam"))
 
   # Count reads in intronic regions
@@ -127,42 +120,38 @@ for (i in 1:length(projects)) {
 # Initialize vector to store counts
 counts <- c()
 
-# Count reads with gene information (GI:Z or GE:Z tags) for each project
-for (i in 1:length(projects)) {
-  project_name <- projects[i]
-  
+# Count reads with gene information (GI:Z or GE:Z tags) for each condition
+for (c in conditions) {
   cmd <- paste0(
-    "samtools view \"", here("scripts/antisense_reads"), "/", project_name, "_intergenic.bam.featureCounts.bam.featureCounts.bam\" | awk '/GI:Z:/ || /GE:Z:/' | wc -l"
+    "samtools view \"", here("scripts/antisense_reads"), "/", c, "_intergenic.bam.featureCounts.bam.featureCounts.bam\" | awk '/GI:Z:/ || /GE:Z:/' | wc -l"
   )
-  cat("Counting for", project_name, ":", cmd, "\n")  # Print command for debugging
+  cat("Counting for", c, ":", cmd, "\n")  # Print command for debugging
   
   result <- system(cmd, intern = TRUE)
   counts <- c(counts, as.numeric(result))
 }
 
 # Create a tibble with the results
-df_counts <- tibble(Project = projects, Count = counts)
+df_counts <- tibble(Condition = conditions, Count = counts)
 
 # Save results to a tab-separated file
-write.table(df_counts, "counts_antisense_intergenics_all_projects.txt", sep = "\t", row.names = FALSE, quote = FALSE)
+write.table(df_counts, "counts_antisense_intergenics_poolsize.txt", sep = "\t", row.names = FALSE, quote = FALSE)
 
 # Display results
 print(df_counts)
 
 # Step 4: Clean up temporary files
 # Remove all BAM files created during the analysis
-for (i in 1:length(projects)) {
-  project_name <- projects[i]
-  
+for (c in conditions) {
   # Remove the intergenic BAM file
-  intergenic_bam <- here("scripts/antisense_reads", paste0(project_name, "_intergenic.bam"))
+  intergenic_bam <- here("scripts/antisense_reads", paste0(c, "_intergenic.bam"))
   if (file.exists(intergenic_bam)) {
     file.remove(intergenic_bam)
   }
   
   # Remove the featureCounts BAM files
-  fc_bam1 <- here("scripts/antisense_reads", paste0(project_name, "_intergenic.bam.featureCounts.bam"))
-  fc_bam2 <- here("scripts/antisense_reads", paste0(project_name, "_intergenic.bam.featureCounts.bam.featureCounts.bam"))
+  fc_bam1 <- here("scripts/antisense_reads", paste0(c, "_intergenic.bam.featureCounts.bam"))
+  fc_bam2 <- here("scripts/antisense_reads", paste0(c, "_intergenic.bam.featureCounts.bam.featureCounts.bam"))
   
   if (file.exists(fc_bam1)) {
     file.remove(fc_bam1)

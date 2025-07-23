@@ -1645,7 +1645,7 @@ all <- map_df(seq_along(file_paths9), function(i) {
 colors_poolsize <- c("Intergenic: anti-sense" = "#FF6F61",
             "Intergenic: other" = "#6B5B95")
 
-poolsize_intergenics_plot <- read.delim(here("scripts/intergenic_analysis/counts_antisense_intergenics_downsampled.txt")) %>%
+poolsize_intergenics_plot <- read.delim(here("scripts/antisense_reads/counts_antisense_intergenics_downsampled_poolsize.txt")) %>%
   dplyr::rename(Anti_sense_reads=Count) %>%
   full_join(
     intergenics,
@@ -1667,7 +1667,7 @@ poolsize_intergenics_plot <- read.delim(here("scripts/intergenic_analysis/counts
 ```
 ## Length bias
 ```{r}
-length_bias_plot <- read_delim(here("scripts/intergenic_analysis/length_bias/counts_per_bin.txt"))%>%
+length_bias_plot <- read_delim(here("scripts/length_bias/counts_per_bin.txt"))%>%
   mutate('Pool size' = factor(dataset, levels=c("80ng", "320ng", "920ng"))) %>%
   filter(count_type == "umicount") %>%
   filter(binning == "only2") %>%
