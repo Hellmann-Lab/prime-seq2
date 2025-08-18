@@ -3,7 +3,7 @@
 This repository contains scripts used for the analysis performed in our manuscript
 
 **Improving RNA-seq protocols**
-*Felix Pförtner, Eva Briem, Daniel Richter, Wolfgang Enard*
+*Felix Pförtner, Eva Briem, Wolfgang Enard, Daniel Richter*
 
 For the full prime-seq protocol please visit [protocols.io](https://www.protocols.io/view/prime-seq-2-dsyx6fxn).
 
