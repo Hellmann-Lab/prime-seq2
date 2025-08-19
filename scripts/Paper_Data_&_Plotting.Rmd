@@ -824,7 +824,7 @@ reads_PTO_plot <- ggplot(data = reads_PTO, aes(y=reads_norm, x=project, fill=pro
   # geom_errorbar(aes(ymin = min, ymax = max, x=project), 
   #               color = "grey", 
   #               width = 0.2) +
-    stat_summary(fun="mean",
+  stat_summary(fun="mean",
                geom="crossbar")+
   geom_hline(yintercept = 1, linetype = "dashed") +
   theme_pubr(legend = "none")+
@@ -1641,9 +1641,9 @@ all <- map_df(seq_along(file_paths9), function(i) {
     mutate(project = names_poolsize[i]) %>%
     summarise(All_reads = sum(N), .by = c(project))
 })
-  
+
 colors_poolsize <- c("Intergenic: anti-sense" = "#FF6F61",
-            "Intergenic: other" = "#6B5B95")
+                     "Intergenic: other" = "#6B5B95")
 
 poolsize_intergenics_plot <- read.delim(here("scripts/antisense_reads/counts_antisense_intergenics_downsampled_poolsize.txt")) %>%
   dplyr::rename(Anti_sense_reads=Count) %>%
@@ -1663,7 +1663,23 @@ poolsize_intergenics_plot <- read.delim(here("scripts/antisense_reads/counts_ant
   labs(y="Read fraction", x="", fill="")+
   scale_fill_manual(values=colors_poolsize)+
   guides(fill=guide_legend(nrow=2, byrow=TRUE))
-  
+
+# get fractions
+read.delim(here("scripts/antisense_reads/counts_antisense_intergenics_downsampled_poolsize.txt")) %>%
+  dplyr::rename(Anti_sense_reads=Count) %>%
+  full_join(
+    intergenics,
+    by=c("Condition"="project")) %>%
+  full_join(
+    all,
+    by=c("Condition"="project")) %>%
+  mutate('Intergenic: anti-sense' = Anti_sense_reads / All_reads,
+         'Intergenic: other' = (Intergenic_reads-Anti_sense_reads) / All_reads) %>%
+  pivot_longer(cols = 5:6, names_to = "category", values_to = "fraction") %>%
+  mutate(Condition = factor(Condition, levels=c("80ng", "320ng", "920ng"))) %>% 
+  mutate(fraction_antisense_of_all_intergenic=Anti_sense_reads/Intergenic_reads*100) %>% 
+  filter(category=="Intergenic: anti-sense") %>% 
+  pull(fraction_antisense_of_all_intergenic)
 ```
 ## Length bias
 ```{r}

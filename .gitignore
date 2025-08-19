@@ -24,6 +24,7 @@ data/RTase/00_fastq/
 
 scripts/Power_Simulations/*old.rds
 scripts/Power_Simulations/*PTO.rds
+scripts/BRB_funnel.R
 
 
 **/00_fastq/*.fastq.gz
