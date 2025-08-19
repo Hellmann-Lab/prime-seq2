@@ -50,3 +50,4 @@ scripts/intergenigs_window_analysis/
 **/03b_custom_genome(s)/
 
 scripts/blacklist_overlap/
+scripts/poolsize_DE.*
