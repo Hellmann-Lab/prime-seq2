@@ -1,3 +1,5 @@
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.16902725.svg)](https://doi.org/10.5281/zenodo.16902725)
+
 # prime-seq 2
 
 This repository contains scripts used for the analysis performed in our manuscript
