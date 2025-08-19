@@ -48,3 +48,5 @@ scripts/intergenigs_window_analysis/
 **/XX_data_submission/
 **/04_analysis/
 **/03b_custom_genome(s)/
+
+scripts/blacklist_overlap/
