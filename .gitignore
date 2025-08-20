@@ -51,3 +51,5 @@ scripts/intergenigs_window_analysis/
 
 scripts/blacklist_overlap/
 scripts/poolsize_DE.*
+
+submission/
