@@ -278,21 +278,21 @@ complexity <- readRDS(here("data/RTase/complexity_RTase.rds")) %>%
   filter(ds_level2 == "7.0e+06")
 
 RT_complexity_plot <- ggplot(complexity, 
-                             aes(y=n, x=temp, fill = temp))+
-  geom_violin()+
+                             aes(y=n, x=temp, color = temp))+
+  geom_quasirandom(alpha=0.5)+
+  # stat_summary(fun="mean",
+  #              geom="crossbar")+
+  stat_summary(fun.data = mean_se, geom = "pointrange") +
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
                      label.y = 17000,
                      ref.group = "42 °C") +
   facet_grid(.~enzyme)+
-  stat_summary(fun.data = "mean_cl_boot", 
-               geom = "pointrange",
-               colour = "black")+
   xlab("")+
   ylab("Detected Genes")+
   theme_pubr(legend = "none")+
-  scale_fill_manual(values = color_vector)+
+  scale_color_manual(values = color_vector)+
   theme(axis.text.x = element_text(size=13),
         strip.text.x = element_text(size=13))
 
@@ -304,7 +304,7 @@ RT_complexity_plot
 # List file paths matching pattern
 file_paths <- list.files(path = here("data/RTase"),
                          pattern = "\\.readspercell\\.txt$", 
-                         recursive = TRUE)
+                         recursive = FALSE)
 
 # Extract metadata from file paths
 names <- str_extract(file_paths, "([^/]+)(?=\\.readspercell\\.txt)")
@@ -336,7 +336,10 @@ map_fract_RT <- map_df(1:length(file_paths), process_file) %>%
   filter(type == c("Exon + Intron"))
 
 RT_fract_plot <- ggplot(data=map_fract_RT, aes(y=fraction, x=temp, color=temp))+
-  geom_boxplot()+
+  geom_quasirandom(alpha=0.5)+
+  # stat_summary(fun="mean",
+  #              geom="crossbar")+
+  stat_summary(fun.data = mean_se, geom = "pointrange") +
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
