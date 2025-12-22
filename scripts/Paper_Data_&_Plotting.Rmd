@@ -1597,13 +1597,16 @@ ggsave(resusp_plot,
 source(here("scripts/read_fragmentation_data.R"))
 
 frag_plot <- ggplot(data=df, aes(y=fract, x=time))+
-  geom_point(shape=4)+
+  # geom_point()+
+    geom_point(shape=4)+
   geom_line(data=df_mean, aes(y=fract_mean, x=time))+
   facet_wrap(~amount, nrow=1)+
   ylab("Fraction selected")+
   xlab("Time [min]")+
   theme_pubr(legend = "none")+
   xlim(0,8)
+
+frag_plot
 
 ggsave(frag_plot,
        filename=here("figures/fig_S4_fragmentation.pdf"),

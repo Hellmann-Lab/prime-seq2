@@ -1,16 +1,13 @@
 file1 <- here("data/Fragmentation/2100 expert_High Sensitivity DNA Assay_DE72901629_2023-05-10_09-52-27.xml")
-file2 <- here("data/Fragmentation/2100 expert_High Sensitivity DNA Assay_DE72901629_2023-05-11_12-10-32.xml")
 file3 <- here("data/Fragmentation/2100 expert_High Sensitivity DNA Assay_DE72901629_2023-06-01_16-52-38.xml")
 
 data1 <- read.bioanalyzer(file1)
-data2 <- read.bioanalyzer(file2)
 data3 <- read.bioanalyzer(file3)
 
 
 data_lib <- subset(rbind(subset(data1, 
                                 !startsWith(as.character(sample.name), "brain_5min_80ng")
 ), 
-data2, 
 data3
 ), 
 startsWith(as.character(sample.name), "brain") | startsWith(as.character(sample.name), "Felix Frag")
