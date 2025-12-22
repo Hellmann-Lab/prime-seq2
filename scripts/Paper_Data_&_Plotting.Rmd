@@ -465,7 +465,7 @@ lib_data_P7 <- lib_data %>%
 
 
 read_plot_P7 <- ggplot(data=lib_data_P7, aes(x=P7, y=norm_readno_P7))+
-  geom_boxplot(outlier.shape = NA)+
+  geom_boxplot()+
   # geom_quasirandom(aes(color=PS), size=3)+
   stat_compare_means(method = "t.test",
                      ref.group = "original",
@@ -497,10 +497,35 @@ lib_data_lig <- lib_data %>%
   ungroup() %>%
   filter(PS != "original")
 
+# Paired t-test: mirrored vs original
+mirrored_rows <- lib_data_lig %>% filter(PS == "mirrored")
+t_test_mirrored <- t.test(mirrored_rows$readno, mirrored_rows$ctrl_readno_PS, paired = TRUE)
+t_test_mirrored
+
+# Paired t-test: blocked vs original
+blocked_rows <- lib_data_lig %>% filter(PS == "blocked")
+t_test_blocked <- t.test(blocked_rows$readno, blocked_rows$ctrl_readno_PS, paired = TRUE)
+t_test_blocked
+# Add t-test results to the read_plot_lig plot as annotations
+
+# Extract the p-values from the t-tests
+mirrored_pval <- signif(t_test_mirrored$p.value, digits=2)
+blocked_pval <- signif(t_test_blocked$p.value, digits=2)
+
+# Annotate p-values onto the plot
+read_plot_lig <- read_plot_lig + 
+  annotate("text", 
+           x = 1, y = 1.85, 
+           label = ifelse(mirrored_pval >= 0.05, "ns", paste0("p = ", mirrored_pval)),
+           hjust = 0.5, size = 3.5) +
+  annotate("text", 
+           x = 2, y = 1.85, 
+           label = ifelse(blocked_pval >= 0.05, "ns", paste0("p = ", blocked_pval)),
+           hjust = 0.5, size = 3.5)
+
 # plot
 read_plot_lig <- ggplot(data=lib_data_lig, aes(x=PS, y=norm_readno_PS, color=PS))+
-  geom_boxplot(outlier.shape = NA)+
-  #geom_quasirandom(aes(color=seq_adapters), size=3)+
+  geom_boxplot()+
   geom_hline(yintercept = 1, linetype = "dashed") + 
   ylab("Relative read number")+
   xlab("")+
@@ -509,6 +534,17 @@ read_plot_lig <- ggplot(data=lib_data_lig, aes(x=PS, y=norm_readno_PS, color=PS)
   scale_color_manual(values=color_vector)+
   coord_cartesian(ylim = c(0.6, 1.9))+  
   theme(axis.text.x = element_text(size=13))
+
+# Annotate p-values onto the plot (write 'ns' if not significant)
+read_plot_lig <- read_plot_lig + 
+  annotate("text", 
+           x = 1, y = 1.85, 
+           label = ifelse(mirrored_pval >= 0.05, "ns", paste0("p = ", mirrored_pval)),
+           hjust = 0.5, size = 3.5) +
+  annotate("text", 
+           x = 2, y = 1.85, 
+           label = ifelse(blocked_pval >= 0.05, "ns", paste0("p = ", blocked_pval)),
+           hjust = 0.5, size = 3.5)
 
 read_plot_lig
 
@@ -596,7 +632,12 @@ unu_nnn <- ggplot(data=unuBC_norm_nnn %>% filter(true_BC==TRUE & PS == "original
   facet_wrap(~PS, ncol=3)+ #maybe add , scales="free" ?(eva)
   stat_summary(fun="mean",
                geom="crossbar")+
-  coord_cartesian(ylim = c(0.9980954, 1.00537635))+
+  coord_cartesian(ylim = c(0.9980954, 1.0070))+
+  stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif",
+                     comparisons = list(c("P7-RS & P5+RS", "P7-RS & P5-RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5+RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5-RS")
+                     )) +
   ylab("Relative assigned \n barcode fraction")+
   xlab("") +
   geom_hline(yintercept=1, linetype="dashed")+
@@ -693,7 +734,12 @@ unu_nnn2 <- ggplot(data=unuBC_norm_nnn %>% filter(true_BC==TRUE & PS != "origina
   facet_wrap(~PS, ncol=3)+ #maybe add , scales="free" ?(eva)
   stat_summary(fun="mean",
                geom="crossbar")+
-  coord_cartesian(ylim = c(0.9980954, 1.00537635))+
+  coord_cartesian(ylim = c(0.9980954, 1.0070))+
+  stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif",
+                     comparisons = list(c("P7-RS & P5+RS", "P7-RS & P5-RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5+RS"), 
+                                        c("P7-RS & P5+RS", "P7+RS & P5-RS")
+                     )) +
   ylab("Relative assigned \n barcode fraction")+
   xlab("") +
   geom_hline(yintercept=1, linetype="dashed")+
@@ -795,6 +841,9 @@ BC_PTO_plot <- ggplot() +
   geom_boxplot(data = barcode_PTO, aes(y=fraction, x=project, color=project))+
   geom_text(data = barcode_PTO_avg, aes(y=mean_fraction, x=project, label=mean_fraction))+
   theme_pubr(legend = "none")+
+  stat_compare_means(data = barcode_PTO, aes(y=fraction, x=project, color=project), method = "t.test", paired = FALSE, label = "p.signif",
+                     ref.group = "improved \n w/o PTO"
+                     ) +
   labs(y = "Assigned Barcode fraction", x = "", color = "protocol")+
   scale_color_manual(values = color_vector)+  
   theme( axis.text.x = element_text(size=13))
@@ -1341,6 +1390,8 @@ lib_data_P5 <- lib_data %>%
   ungroup() %>%
   filter(P5 != "P5+RS")
 
+t_test_P5 <- t.test(lib_data_P5$readno, lib_data_P5$ctrl_readno_P5, paired = TRUE)
+
 # plot
 read_plot_P5 <- ggplot(data=lib_data_P5, aes(x=P5, y=norm_readno_P5))+
   geom_boxplot(outlier.shape = NA)+
@@ -1352,9 +1403,21 @@ read_plot_P5 <- ggplot(data=lib_data_P5, aes(x=P5, y=norm_readno_P5))+
   theme_pubr(legend = "none")+
   scale_color_manual(values=color_vector)
 
+read_plot_P5 <- read_plot_P5 + 
+  annotate("text", 
+           x = 1, y = 1.02, 
+           label = case_when(t_test_P5$p.value > 0.05 ~ "ns",
+                             t_test_P5$p.value <= 0.05 ~ "*",
+                             t_test_P5$p.value <= 0.01 ~ "**",
+                             t_test_P5$p.value <= 0.001 ~ "***",
+                             t_test_P5$p.value <= 0.0001 ~ "****"),
+           hjust = 0.5, size = 5)
+
 read_plot_P5
 
 # P7
+t_test_P7 <- t.test(lib_data_P7$readno, lib_data_P7$ctrl_readno_P7, paired = TRUE)
+
 read_plot_P7_colored <- ggplot(data=lib_data_P7, aes(x=P7, y=norm_readno_P7))+
   geom_boxplot(outlier.shape = NA)+
   geom_quasirandom(aes(color=PS), size=2)+
@@ -1368,8 +1431,22 @@ read_plot_P7_colored <- ggplot(data=lib_data_P7, aes(x=P7, y=norm_readno_P7))+
   labs(color="Ligation adapters")+
   theme_pubr(legend = "right")+
   scale_color_manual(values=color_vector)
+read_plot_P7_colored
+
+read_plot_P7_colored <- read_plot_P7_colored + 
+  annotate("text", 
+           x = 1, y = 2.9, 
+           label = case_when(t_test_P7$p.value > 0.05 ~ "ns",
+                             t_test_P7$p.value <= 0.05 ~ "*",
+                             t_test_P7$p.value <= 0.01 ~ "**",
+                             t_test_P7$p.value <= 0.001 ~ "***",
+                             t_test_P7$p.value <= 0.0001 ~ "****"),
+           hjust = 0.5, size = 5)
+
+read_plot_P7_colored
 
 reads_plot_supp <- read_plot_P5 + read_plot_P7_colored
+reads_plot_supp
 # save
 ggsave(plot = reads_plot_supp,
        filename = here("figures/fig_S5_reads_P5-7.pdf"),
