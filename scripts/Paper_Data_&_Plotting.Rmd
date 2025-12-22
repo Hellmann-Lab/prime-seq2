@@ -52,6 +52,10 @@ color_vector <- c("original" = "#969994", # general protocols
                   "320ng" = "#7D7A3B",
                   "920ng" = "#454321",
                   
+                  "80" = "#C4C082",
+                  "320" = "#7D7A3B",
+                  "920" = "#454321",
+                  
                   "resuspended" = "#D28A4B" # Resuspension test (Suppl.)
 )
 ```
@@ -386,22 +390,27 @@ rpc_poolsize <- map_df(seq_along(file_paths9), function(i) {
     mutate(fraction_type_project = sum_type / sum_project) %>%
     select(RG, N, type, project, fraction, fraction_type_project)
 }) %>%
-  mutate(project = factor(project, levels = c("80ng", "320ng", "920ng"))) %>%
+  mutate(project = as.numeric(gsub("ng", "", project))) %>%
+  # mutate(project = factor(project, levels = c("80ng", "320ng", "920ng"))) %>%
   filter(type == "Exon + Intron")
 
-rpc_poolsize$project %>% factor(levels = c("80ng", "320ng", "920ng"))
+# rpc_poolsize$project %>% factor(levels = c("80ng", "320ng", "920ng"))
 
 # plot
-mapping_fract_poolsize <- ggplot(data=rpc_poolsize, aes(y=fraction, x=project, color=project))+
-  geom_boxplot()+
-  stat_compare_means(method = "t.test", 
-                     paired = FALSE, 
-                     label = "p.signif",
-                     comparisons = list(c("320ng", "80ng"),
-                                        c("920ng", "80ng"))
-  ) +
-  labs(y = "Exon + intron fraction", x = "", color = "total RNA input") +
+mapping_fract_poolsize <- ggplot(data=rpc_poolsize, aes(y=fraction, x=project, color=project, group = project))+
+  geom_boxplot(aes(color = factor(project)), width = 200)+
+  # stat_compare_means(method = "t.test", 
+  #                    paired = FALSE, 
+  #                    label = "p.signif",
+  #                    comparisons = list(c("320ng", "80ng"),
+  #                                       c("920ng", "80ng"))
+  # ) +
+  labs(y = "Exon + intron fraction", x = "total RNA input [ng]", color = "total RNA input") +
   theme_pubr(legend = "none") +
+  scale_x_continuous(
+    breaks = c(80, 320, 920),
+    labels = c("80", "320", "920")
+  )+
   scale_color_manual(values=color_vector)+
   theme(axis.text.x = element_text(size=13),
         #axis.ticks.x = element_blank()
@@ -843,7 +852,7 @@ BC_PTO_plot <- ggplot() +
   theme_pubr(legend = "none")+
   stat_compare_means(data = barcode_PTO, aes(y=fraction, x=project, color=project), method = "t.test", paired = FALSE, label = "p.signif",
                      ref.group = "improved \n w/o PTO"
-                     ) +
+  ) +
   labs(y = "Assigned Barcode fraction", x = "", color = "protocol")+
   scale_color_manual(values = color_vector)+  
   theme( axis.text.x = element_text(size=13))
@@ -1598,7 +1607,7 @@ source(here("scripts/read_fragmentation_data.R"))
 
 frag_plot <- ggplot(data=df, aes(y=fract, x=time))+
   # geom_point()+
-    geom_point(shape=4)+
+  geom_point(shape=4)+
   geom_line(data=df_mean, aes(y=fract_mean, x=time))+
   facet_wrap(~amount, nrow=1)+
   ylab("Fraction selected")+
