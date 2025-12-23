@@ -1,0 +1,661 @@
+---
+title: "RT genes"
+output:
+  html_document:
+    df_print: paged
+---
+
+# Background
+
+Reviewer comment: The finding of "extra" genes detected with the original RTase is interesting. 
+Are these "extra" genes "real" or stochastic "noise"? 
+It would be helpful to know if they are all lowly expressed, if they are reproducibly expressed across replicates, and if they are associated with particular biological pathways (e.g., via gene set analysis).
+
+# Setup
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(data.table)
+library(parallel)
+library(AnnotationDbi)
+library(org.Mm.eg.db)
+library(patchwork)
+library(scales)
+library(forcats)
+library(here)
+library(ggpubr)
+library(clusterProfiler)
+```
+
+```{r setup_here}
+here::i_am("scripts/RT_genes.Rmd")
+```
+
+# Data Loading
+
+## Read UMI count data
+```{r read_counts}
+counts_M42 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/Maxima_42.dgecounts.rds"))$umicount$inex$all))
+counts_M50 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/Maxima_50.dgecounts.rds"))$umicount$inex$all))
+counts_S42 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/SS_42.dgecounts.rds"))$umicount$inex$all))
+counts_S50 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/SS_50.dgecounts.rds"))$umicount$inex$all))
+```
+
+## Library size summary
+
+```{r library_size_summary}
+# Calculate mean and minimum library sizes per sample for each condition
+mean_reads_M42 <- mean(colSums(counts_M42))
+mean_reads_M50 <- mean(colSums(counts_M50))
+mean_reads_S42 <- mean(colSums(counts_S42))
+mean_reads_S50 <- mean(colSums(counts_S50))
+
+min_reads_M42 <- min(colSums(counts_M42))
+min_reads_M50 <- min(colSums(counts_M50))
+min_reads_S42 <- min(colSums(counts_S42))
+min_reads_S50 <- min(colSums(counts_S50))
+
+avg_reads_df <- data.frame(
+  matrix = c("Maxima_42", "Maxima_50", "SS_42", "SS_50"),
+  avg_reads = c(mean_reads_M42, mean_reads_M50, mean_reads_S42, mean_reads_S50),
+  min_reads = c(min_reads_M42, min_reads_M50, min_reads_S42, min_reads_S50)
+)
+avg_reads_df
+```
+
+# Data Normalization
+
+To enable fair comparison across conditions, we need to downsample to a common depth. 
+To minimize downsampling, we drop the lowest-depth replicate from each condition, keeping 3 replicates per condition.
+
+## Downsampling and replicate selection
+```{r downsample_counts}
+set.seed(92384598)  # make the random downsampling reproducible
+
+# Helper functions
+as_int_mat <- function(df){
+  m <- as.matrix(df)
+  storage.mode(m) <- "integer"
+  rownames(m) <- sub("\\.\\d+$", "", rownames(m))  # drop Ensembl version if present
+  m
+}
+
+align_to_union_genes <- function(mats){
+  all_genes <- Reduce(union, lapply(mats, rownames))
+  lapply(mats, function(m){
+    out <- matrix(0L, nrow = length(all_genes), ncol = ncol(m),
+                  dimnames = list(all_genes, colnames(m)))
+    out[rownames(m), ] <- m
+    out
+  })
+}
+
+drop_lowest_rep <- function(m, label){
+  lib <- colSums(m)
+  drop <- names(which.min(lib))
+  message(sprintf("[%s] drop lowest: %s (UMIs=%d)", label, drop, lib[drop]))
+  m[, setdiff(colnames(m), drop), drop = FALSE]
+}
+
+downsample_to <- function(m, depth){
+  ds_col <- function(x){
+    tot <- sum(x)
+    if (tot < depth) stop("A kept sample has fewer UMIs than target depth.")
+    if (tot == depth) return(x)
+    p <- x / tot
+    as.integer(rmultinom(1, size = depth, prob = p)[,1])
+  }
+  out <- apply(m, 2, ds_col)
+  # apply() may drop dimnames depending on edge cases
+  out <- as.matrix(out)
+  storage.mode(out) <- "integer"
+  rownames(out) <- rownames(m)
+  colnames(out) <- colnames(m)
+  out
+}
+
+# Prepare and align genes across all 4 conditions
+mats <- list(
+  M42 = as_int_mat(counts_M42),
+  M50 = as_int_mat(counts_M50),
+  S42 = as_int_mat(counts_S42),
+  S50 = as_int_mat(counts_S50)
+)
+mats <- align_to_union_genes(mats)
+
+# Keep top 3 replicates per condition (drop lowest-depth replicate)
+mats_k <- list(
+  M42 = drop_lowest_rep(mats$M42, "Maxima_42"),
+  M50 = drop_lowest_rep(mats$M50, "Maxima_50"),
+  S42 = drop_lowest_rep(mats$S42, "SS_42"),
+  S50 = drop_lowest_rep(mats$S50, "SS_50")
+)
+
+# Choose one common downsample depth for all 12 kept samples
+all_kept_libsizes <- unlist(lapply(mats_k, colSums))
+target_depth <- min(all_kept_libsizes)
+message(sprintf("Downsampling ALL kept samples to target_depth = %d UMIs", target_depth))
+
+# Downsample each kept sample to target_depth
+mats_ds <- lapply(mats_k, downsample_to, depth = target_depth)
+
+# Output: downsampled count matrices (genes x 3 reps each)
+# All columns now have identical total UMIs = target_depth
+counts_M42_ds <- mats_ds$M42
+counts_M50_ds <- mats_ds$M50
+counts_S42_ds <- mats_ds$S42
+counts_S50_ds <- mats_ds$S50
+
+# Sanity check: verify all columns sum to target_depth
+sapply(mats_ds, colSums)
+
+
+```
+# Gene Expression Analysis
+
+## Count expressed genes per condition
+
+```{r count_expressed_genes}
+# For each count matrix, count in how many samples each gene is expressed (>0)
+expressed_in_M42 <- rowSums(counts_M42_ds > 0)
+expressed_in_M50 <- rowSums(counts_M50_ds > 0)
+expressed_in_S42 <- rowSums(counts_S42_ds > 0)
+expressed_in_S50 <- rowSums(counts_S50_ds > 0)
+
+# Combine results into one data frame
+# Get the union of all gene names across all conditions
+all_genes <- Reduce(union, list(rownames(counts_M42), rownames(counts_M50_ds), rownames(counts_S42_ds), rownames(counts_S50_ds)))
+
+# Helper function to align expressed counts to the union of all genes
+get_expressed <- function(genes, expressed_vec) {
+  expressed_out <- rep(0, length(all_genes))
+  names(expressed_out) <- all_genes
+  expressed_out[genes] <- expressed_vec
+  return(expressed_out)
+}
+
+expressed_df <- data.frame(
+  gene = all_genes,
+  expressed_in_M42 = get_expressed(rownames(counts_M42_ds), expressed_in_M42),
+  expressed_in_M50 = get_expressed(rownames(counts_M50_ds), expressed_in_M50),
+  expressed_in_S42 = get_expressed(rownames(counts_S42_ds), expressed_in_S42),
+  expressed_in_S50 = get_expressed(rownames(counts_S50_ds), expressed_in_S50)
+)
+
+
+```
+
+
+## UpSet plot of gene expression overlap (not included)
+
+```{r upset_plot, message=FALSE, warning=FALSE}
+library(UpSetR)
+
+# Define genes expressed in at least 2 samples for each condition
+genes_M42 <- expressed_df$gene[expressed_df$expressed_in_M42 >= 2]
+genes_M50 <- expressed_df$gene[expressed_df$expressed_in_M50 >= 2]
+genes_S42 <- expressed_df$gene[expressed_df$expressed_in_S42 >= 2]
+genes_S50 <- expressed_df$gene[expressed_df$expressed_in_S50 >= 2]
+
+# Create a list of gene sets
+gene_sets <- list(
+  M42 = genes_M42,
+  M50 = genes_M50,
+  S42 = genes_S42,
+  S50 = genes_S50
+)
+
+# Create upset plot
+upset(fromList(gene_sets),
+      sets = c("M42", "M50", "S42", "S50"),
+      order.by = "freq",
+      sets.bar.color = "#56B4E9",
+      matrix.color = "#56B4E9",
+      main.bar.color = "gray23",
+      text.scale = c(1.3, 1.3, 1, 1, 1.5, 1))
+```
+
+
+## Mean-variance relationship (not included)
+
+```{r mean_variance_plot}
+# Calculate detection, mean, and variance statistics for each condition
+gene_stats <- function(mat, prefix){
+  tibble(
+    gene = rownames(mat),
+    !!paste0("det_", prefix) := rowSums(mat > 0),
+    !!paste0("mean_", prefix) := rowMeans(mat),
+    !!paste0("var_", prefix) := apply(mat, 1, var)
+  )
+}
+
+st <- gene_stats(counts_M42_ds, "M42") %>%
+  left_join(gene_stats(counts_M50_ds, "M50"), by="gene") %>%
+  left_join(gene_stats(counts_S42_ds, "S42"), by="gene") %>%
+  left_join(gene_stats(counts_S50_ds, "S50"), by="gene") %>%
+  mutate(
+    # With 3 kept reps: robust = detected in all 3; absent = detected in <=1
+    robust_M42 = det_M42 >= 3 & mean_M42 >= 2,
+    absent_S42 = det_S42 <= 1,
+    absent_M50 = det_M50 <= 1,
+    absent_S50 = det_S50 <= 1,
+    
+    extra_rtase = robust_M42 & absent_S42,
+    extra_temp  = robust_M42 & absent_M50,
+    extra_only_M42 = robust_M42 & absent_S42 & absent_M50 & absent_S50,
+    
+    category = case_when(
+      extra_only_M42 ~ "only in M42",
+      extra_rtase & extra_temp ~ "lost by RTase+temp",
+      extra_rtase ~ "lost by RTase",
+      extra_temp ~ "lost by temp",
+      TRUE ~ "other"
+    )
+  )
+
+ggplot(st, aes(x = mean_M42 + 1, y = var_M42 + 1, color = category)) +
+  scale_x_log10() + scale_y_log10() +
+  geom_point(alpha = 0.55, size = 1.1) +
+  geom_abline(intercept = 0, slope = 1, linetype = 2) +  # Poisson reference line (var = mean)
+  geom_smooth()+
+  theme_classic() +
+  labs(x="Mean UMI in M42 (+1, log10)", y="Variance across M42 reps (+1, log10)",
+       title="Mean–variance in M42; genes 'lost' after RTase/temp change highlighted")
+
+```
+
+
+
+# Expression Level Analysis
+
+## Expression levels of "lost" genes
+
+```{r expression_levels}
+# Using depth-matched, top 3 replicate matrices (genes x reps):
+# counts_M42_ds, counts_M50_ds, counts_S42_ds, counts_S50_ds
+
+det_n <- function(mat, thr = 0) rowSums(mat > thr)
+
+# Calculate mean CPM across replicates for a matrix (genes x reps)
+mean_cpm <- function(mat){
+  lib <- colSums(mat)
+  cpm <- sweep(mat, 2, lib / 1e6, "/")  # CPM per replicate
+  rowMeans(cpm)
+}
+
+# Per-gene summary
+df <- tibble(
+  gene = rownames(counts_M42_ds),
+  
+  cpm_M42 = mean_cpm(counts_M42_ds),
+  
+  det_M42 = det_n(counts_M42_ds, thr = 0),
+  det_M50 = det_n(counts_M50_ds, thr = 0),
+  det_S42 = det_n(counts_S42_ds, thr = 0),
+  det_S50 = det_n(counts_S50_ds, thr = 0)
+)
+
+# Define gene groups
+robust_ref <- 2  # Out of 3 reps: reproducible in M42
+lost_thr   <- 1  # Out of 3 reps: absent/rare in comparison
+
+df2 <- df %>%
+  mutate(
+    expressed_all = det_M42 >= 2 & det_M50 >= 2 & det_S42 >= 2 & det_S50 >= 2,
+    
+    lost_rtase = det_M42 >= robust_ref & det_S42 <= lost_thr,
+    lost_temp  = det_M42 >= robust_ref & det_M50 <= lost_thr,
+    lost_both  = det_M42 >= robust_ref & det_S42 <= lost_thr & det_M50 <= lost_thr,
+    
+    group = case_when(
+      expressed_all ~ "expressed in all conditions",
+      lost_both     ~ "lost by RTase + temp",
+      lost_rtase    ~ "lost by RTase",
+      lost_temp     ~ "lost by temp",
+      TRUE          ~ NA_character_
+    )
+  ) %>%
+  filter(!is.na(group)) %>%
+  mutate(logCPM = log10(cpm_M42 + 1))
+
+# Create boxplot with proper ordering
+group_levels <- c(
+  "expressed in all conditions",
+  "lost by RTase",
+  "lost by temp",
+  "lost by RTase + temp"
+)
+
+df2p <- df2 %>%
+  mutate(group = factor(group, levels = group_levels)) %>%
+  filter(!is.na(group))
+
+
+plot_expression <- ggplot(df2p, aes(x = group, y = logCPM)) +
+  geom_boxplot(width = 0.65, outlier.alpha = 0.12, linewidth = 0.4) +
+  coord_flip() +
+  theme_pubr() +
+  theme(
+    legend.position = "none",
+    axis.title.y = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_line(color = "grey90")
+  ) +
+  labs(
+    y = "log10(CPM + 1) in M42"
+  )
+
+plot_expression
+```
+
+**Interpretation:** Genes that are lost upon switching RTase and/or temperature are predominantly lowly expressed in the reference condition (M42). This is consistent with many 'extra' detections arising close to the detection limit rather than representing a distinct highly expressed gene set.
+
+## Reproducibility of "lost" genes
+```{r reproducibility_analysis}
+# Helper function to count detections
+det_n <- function(mat, thr = 0) rowSums(mat > thr)
+
+# Per-gene detection counts
+df_det <- tibble(
+  gene = rownames(counts_M42_ds),
+  det_M42 = det_n(counts_M42_ds, thr = 0),
+  det_M50 = det_n(counts_M50_ds, thr = 0),
+  det_S42 = det_n(counts_S42_ds, thr = 0),
+  det_S50 = det_n(counts_S50_ds, thr = 0)
+)
+
+nrep <- ncol(counts_M42_ds)
+
+# Use same group definitions as before
+robust_ref <- ceiling(2/3 * nrep)  # For 3 reps -> 2
+lost_thr   <- floor(1/3 * nrep)    # For 3 reps -> 1
+
+df_groups <- df_det %>%
+  mutate(
+    expressed_all = det_M42 >= robust_ref & det_M50 >= robust_ref & det_S42 >= robust_ref & det_S50 >= robust_ref,
+    
+    lost_rtase = det_M42 >= robust_ref & det_S42 <= lost_thr,
+    lost_temp  = det_M42 >= robust_ref & det_M50 <= lost_thr,
+    lost_both  = det_M42 >= robust_ref & det_S42 <= lost_thr & det_M50 <= lost_thr,
+    
+    group = case_when(
+      expressed_all ~ "expressed in all conditions",
+      lost_both     ~ "lost by RTase + temp",
+      lost_rtase    ~ "lost by RTase",
+      lost_temp     ~ "lost by temp",
+      TRUE          ~ NA_character_
+    ),
+    det_frac_M42 = det_M42 / nrep
+  ) %>%
+  filter(!is.na(group))
+
+# Create reproducibility plot
+
+nrep <- ncol(counts_M42_ds)
+
+group_levels <- c(
+  "expressed in all conditions",
+  "lost by RTase",
+  "lost by temp",
+  "lost by RTase + temp"
+)
+
+pdat <- df_groups %>%
+  mutate(
+    group = factor(group, levels = group_levels),
+    det_class = ifelse(det_M42 == nrep,
+                       "Yes",
+                       "No")
+  ) %>%
+  dplyr::count(group, det_class) %>%
+  group_by(group) %>%
+  mutate(frac = n / sum(n)) %>%
+  ungroup() %>%
+  group_by(group) %>%
+  mutate(label = ifelse(det_class == "Yes",
+                        percent(frac, accuracy = 1), "")) %>%  # Label only one segment
+  ungroup()
+
+plot_reproducibility <- ggplot(pdat, aes(x = group, y = frac, fill = det_class)) +
+  geom_col(width = 0.8, color = "white", linewidth = 0.4) +
+  geom_text(aes(label = label),
+            position = position_stack(vjust = 0.5),
+            size = 3.6, color = "white") +
+  scale_y_continuous(labels = percent_format(accuracy = 1), expand = expansion(mult = c(0, 0.02))) +
+  scale_fill_manual(values = c(
+    "No" = "#E76F51",
+    "Yes" = "#2A9D8F"
+  )) +
+  coord_flip() +
+  theme_pubr(legend = "right")+
+  labs(
+    x="",
+    y = "Fraction of genes",
+    fill = "Expression in all \nMaxima H- 42°C \nsamples?"
+  )+
+  theme( axis.text.y = element_blank(),
+         axis.ticks.y = element_blank())
+
+plot_reproducibility
+
+```
+
+## Combine expression and reproducibility plots
+
+```{r combine_expression_plots}
+plot_comb1 <- 
+  plot_expression + 
+  plot_reproducibility + 
+  plot_layout(
+    widths = c(1.3, 1))
+
+plot_comb1
+
+```
+
+# Gene Set Enrichment Analysis
+
+Are the 'lost' genes associated with any biological process?
+
+## Preparation
+```{r gsea_preparation}
+strip_ver <- function(x) sub("\\.\\d+$", "", x)
+
+lost_groups <- c("lost by RTase", "lost by temp", "lost by RTase + temp")
+
+lost_lists <- df2p %>%
+  filter(group %in% lost_groups) %>%
+  mutate(gene = as.character(gene),
+         group = as.character(group)) %>%
+  group_by(group) %>%
+  summarise(genes = list(unique(gene)), .groups = "drop") %>%
+  deframe()
+
+# Inspect sizes (this will reveal any empty groups)
+sapply(lost_lists, length)
+
+universe_genes <- df2p %>% pull(gene) %>% as.character() %>% unique()
+
+# Safe conversion to Entrez IDs
+to_entrez_safe <- function(ids){
+  # Coerce to plain character vector
+  ids <- unlist(ids, use.names = FALSE)
+  ids <- as.character(ids)
+  ids <- strip_ver(ids)
+  ids <- ids[!is.na(ids) & ids != ""]
+  ids <- unique(ids)
+  
+  if (length(ids) == 0) return(character(0))  # Prevents error for empty input
+  
+  eg <- mapIds(org.Mm.eg.db,
+               keys = ids,
+               keytype = "ENSEMBL",
+               column = "ENTREZID",
+               multiVals = "first")
+  unique(na.omit(unname(eg)))
+}
+
+lost_lists_ez <- lapply(lost_lists, to_entrez_safe)
+universe_ez   <- to_entrez_safe(universe_genes)
+
+# Sanity check: how many genes mapped?
+sapply(lost_lists_ez, length)
+length(universe_ez)
+```
+
+## Run GO Biological Process enrichment
+```{r go_enrichment}
+run_go <- function(gene_ez, universe_ez){
+  enrichGO(
+    gene          = gene_ez,
+    universe      = universe_ez,
+    OrgDb         = org.Mm.eg.db,
+    keyType       = "ENTREZID",
+    ont           = "BP",
+    pAdjustMethod = "BH",
+    pvalueCutoff  = 0.05,
+    qvalueCutoff  = 0.2,
+    readable      = TRUE
+  )
+}
+
+ego <- lapply(lost_lists_ez, run_go, universe_ez = universe_ez)
+
+# Create a compact results table
+ego_tbl <- bind_rows(lapply(names(ego), function(nm){
+  x <- ego[[nm]]
+  if (is.null(x) || nrow(as.data.frame(x)) == 0) return(NULL)
+  as.data.frame(x) %>% mutate(list = nm)
+}))
+
+# Helper function to convert ratio strings to numeric values
+ratio_to_num <- function(r){
+  # Input format: "12/345"
+  r <- as.character(r)
+  out <- rep(NA_real_, length(r))
+  ok <- !is.na(r) & grepl("/", r)
+  parts <- strsplit(r[ok], "/", fixed = TRUE)
+  out[ok] <- vapply(parts, function(z) as.numeric(z[1]) / as.numeric(z[2]), numeric(1))
+  out
+}
+
+ego_fe_tbl <- imap_dfr(ego, function(res, nm){
+  if (is.null(res)) return(NULL)
+  df <- as.data.frame(res)
+  if (nrow(df) == 0) return(NULL)
+  
+  df %>%
+    mutate(
+      category = nm,
+      GeneRatio_num = ratio_to_num(GeneRatio),
+      BgRatio_num   = ratio_to_num(BgRatio),
+      FoldEnrichment = GeneRatio_num / BgRatio_num
+    )
+})
+
+# Keep only significant terms
+sig <- ego_fe_tbl %>%
+  filter(!is.na(FoldEnrichment), p.adjust < 0.05)
+
+# Pick top N terms per category by fold enrichment
+top_n <- 10
+plot_df <- sig %>%
+  group_by(category) %>%
+  slice_max(order_by = FoldEnrichment, n = top_n, with_ties = FALSE) %>%
+  ungroup() %>%
+  mutate(
+    term = paste0(category, ": ", Description),
+    term = fct_reorder(term, FoldEnrichment)
+  )%>%
+  mutate(Description_wrapped = str_wrap(Description, width = 55))
+
+# plot
+enrichment_plot <- ggplot(plot_df, aes(x = FoldEnrichment, y = Description_wrapped)) +
+  geom_vline(xintercept = 1, linetype = 2) +
+  geom_point(aes(size = Count, color = p.adjust), alpha = 0.9) +
+  facet_wrap(~category, scales = "free_y") +
+  scale_y_discrete(labels = function(x) sub("^.*?:\\s*", "", x)) +
+  theme_pubr(legend = "right") +
+  labs(
+    x = "Fold enrichment (GeneRatio / BgRatio)",
+    y = "",
+    color = "FDR (BH)",
+    size = "Genes in term"
+  )+
+  theme(axis.text.y = element_text(size = 9.5))
+enrichment_plot
+
+```
+
+## Summary: number of genes and significant GO terms
+```{r go_summary}
+lost_groups <- c("lost by RTase", "lost by temp", "lost by RTase + temp")
+
+# Helper function to count significant terms
+n_sig_terms <- function(enrich_obj, q = 0.05){
+  if (is.null(enrich_obj)) return(0L)
+  df <- as.data.frame(enrich_obj)
+  if (nrow(df) == 0) return(0L)
+  sum(df$p.adjust < q, na.rm = TRUE)
+}
+
+overview <- tibble(
+  group = factor(lost_groups, levels = lost_groups),
+  n_genes = sapply(lost_groups, \(g) length(unique(lost_lists_ez[[g]]))),
+  n_go_sig = sapply(lost_groups, \(g) n_sig_terms(ego[[g]], q = 0.05))
+)
+
+# Plot 1: number of genes
+p_genes <- ggplot(overview, aes(x = group, y = n_genes)) +
+  geom_col(width = 0.7) +
+  coord_flip() +
+  theme_pubr() +
+  labs(x = "", y = "# genes for GO analysis")
+
+# Plot 2: number of significant GO terms
+p_go <- ggplot(overview, aes(x = group, y = n_go_sig)) +
+  geom_col(width = 0.7) +
+  coord_flip() +
+  theme_pubr() +
+  labs(x = "", y = "# significant GO BP terms \n(FDR < 0.05)")+
+  theme( axis.text.y = element_blank(),
+         axis.ticks.y = element_blank())
+p_genes | p_go
+
+
+```
+## Combine GO enrichment plots
+
+```{r combine_go_plots}
+plot_comb2 <- (p_genes | p_go )/enrichment_plot+ 
+  plot_layout(
+    heights = c(1, 3.5))
+
+plot_comb2
+```
+
+## Create final combined figure
+
+```{r final_figure}
+# Define layout for combined figure
+layout_RT_rev  <- c("AB\nCD\nEE")
+
+plot_comb_all <- 
+  plot_expression + 
+  plot_reproducibility + 
+  p_genes+
+  p_go + 
+  enrichment_plot+
+  plot_layout(
+    design = layout_RT_rev,
+    heights = c(0.9, 0.5, 1)
+  )
+
+plot_comb_all
+
+ggsave(plot_comb_all,
+       filename=here("figures/fig_S7_RT_rev.pdf"),
+       height=7,
+       width=13)
+```
+
