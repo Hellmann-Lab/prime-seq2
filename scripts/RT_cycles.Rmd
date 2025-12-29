@@ -1,0 +1,415 @@
+---
+title: "RT cycles"
+output:
+  html_document:
+    df_print: paged
+---
+
+Reviewer: The 6 extra PCR cycles required at higher RT temperatures (p6) is a significant amount of extra amplification. 
+Does this lead to reduced library complexity or higher UMI duplication rates?
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(here)
+here::i_am("scripts/RT_cycles.Rmd")
+```
+
+```{r}
+color_vector <- c("original" = "#969994", # general protocols  
+                  "improved" = "#96D8BF",   
+                  "improved w/o PTO" = "#2C3A31",  
+                  
+                  "optimized \n DNase" = "#096581", # DNase test  ## i like this
+                  "no DNase" = "#011E28",
+                  
+                  "P7-RS & P5+RS" = "#969994", # Seq adapters
+                  "P7-RS & P5-RS" = "#d7c4c1",
+                  "P7+RS & P5+RS" = "#8EDEE1", 
+                  "P7+RS & P5-RS" = "#1C333F",
+                  
+                  "original" = "#969994", # Seq adapters
+                  "blocked" = "#F0B0C9",
+                  "mirrored" = "#490914",
+                  
+                  "50 °C" = "#3F1A4C", # RT temp
+                  "42 °C" = "#DDC7E6",
+                  
+                  "80ng" = "#C4C082",
+                  "320ng" = "#7D7A3B",
+                  "920ng" = "#454321",
+                  
+                  "80" = "#C4C082",
+                  "320" = "#7D7A3B",
+                  "920" = "#454321",
+                  
+                  "resuspended" = "#D28A4B" # Resuspension test (Suppl.)
+)
+```
+
+# Without Downsampling
+i would not trust that, so integrated downsampling below
+```{r}
+# Load UMI and read count matrices for each condition
+umis_M42 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/Maxima_42.dgecounts.rds"))$umicount$inex$all))
+umis_M50 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/Maxima_50.dgecounts.rds"))$umicount$inex$all))
+umis_S42 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/SS_42.dgecounts.rds"))$umicount$inex$all))
+umis_S50 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/SS_50.dgecounts.rds"))$umicount$inex$all))
+reads_M42 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/Maxima_42.dgecounts.rds"))$readcount$inex$all))
+reads_M50 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/Maxima_50.dgecounts.rds"))$readcount$inex$all))
+reads_S42 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/SS_42.dgecounts.rds"))$readcount$inex$all))
+reads_S50 <- as.data.frame(as.matrix(readRDS(here("data/RTase/counts/SS_50.dgecounts.rds"))$readcount$inex$all))
+
+# Calculate UMIs per Read for each column (replicate) in each condition
+umi_read_list <- list(
+  M42 = data.frame(
+    sample = colnames(umis_M42),
+    condition = "M42",
+    total_umis = colSums(umis_M42),
+    total_reads = colSums(reads_M42)
+  ),
+  M50 = data.frame(
+    sample = colnames(umis_M50),
+    condition = "M50",
+    total_umis = colSums(umis_M50),
+    total_reads = colSums(reads_M50)
+  ),
+  S42 = data.frame(
+    sample = colnames(umis_S42),
+    condition = "S42",
+    total_umis = colSums(umis_S42),
+    total_reads = colSums(reads_S42)
+  ),
+  S50 = data.frame(
+    sample = colnames(umis_S50),
+    condition = "S50",
+    total_umis = colSums(umis_S50),
+    total_reads = colSums(reads_S50)
+  )
+)
+
+# Combine all conditions into one dataframe and calculate UMIs per read for each sample/column
+umi_read_df <- dplyr::bind_rows(umi_read_list) %>%
+  dplyr::mutate(umis_per_read = total_umis / total_reads)
+
+umi_read_df
+```
+
+```{r umi_per_read_plot}
+# Create factor with proper ordering for conditions
+umi_read_df_plot <- umi_read_df %>%
+  mutate(
+    condition = factor(condition, levels = c("M42", "M50", "S42", "S50")),
+    condition_label = case_when(
+      condition == "M42" ~ "Maxima H- 42°C",
+      condition == "M50" ~ "Maxima H- 50°C",
+      condition == "S42" ~ "SuperScript IV 42°C",
+      condition == "S50" ~ "SuperScript IV 50°C"
+    ),
+    condition_label = factor(condition_label, 
+                             levels = c("Maxima H- 42°C", "Maxima H- 50°C", 
+                                       "SuperScript IV 42°C", "SuperScript IV 50°C"))
+  )
+
+# Create boxplot with individual points
+plot_umi_per_read <- ggplot(umi_read_df_plot, aes(x = condition_label, y = umis_per_read)) +
+  geom_boxplot(width = 0.6, outlier.alpha = 0, linewidth = 0.4) +
+  geom_point(position = position_jitter(width = 0.2, height = 0), 
+             alpha = 0.7, size = 2.5) +
+  theme_pubr() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_line(color = "grey90")
+  ) +
+  labs(
+    x = "Condition",
+    y = "UMIs per read"
+  )
+
+plot_umi_per_read
+```
+
+# Configuration
+
+```{r config}
+# BAM files
+bam_tbl <- tibble::tribble(
+  ~condition,    ~bam,
+  "Maxima_42",    "/data/share/htp/Felix_genotyping/primeSeq_tests/RTase_test/trimmed/Maxima_42/Maxima_42.filtered.Aligned.GeneTagged.sorted.bam",
+  "Maxima_50",    "/data/share/htp/Felix_genotyping/primeSeq_tests/RTase_test/trimmed/Maxima_50/Maxima_50.filtered.Aligned.GeneTagged.sorted.bam",
+  "SS_42",        "/data/share/htp/Felix_genotyping/primeSeq_tests/RTase_test/trimmed/SS_42/SS_42.filtered.Aligned.GeneTagged.sorted.bam",
+  "SS_50",        "/data/share/htp/Felix_genotyping/primeSeq_tests/RTase_test/trimmed/SS_50/SS_50.filtered.Aligned.GeneTagged.sorted.bam"
+)
+
+# Parameters
+out_dir <- "/data/share/htp/prime-seq_NextGen/data/RTase/bam_downsample_duplication_out"
+threads <- 8
+seed <- 29836492
+min_reads_per_barcode <- 10000
+sort_mem <- "100G"
+mode <- "inex"  # "exon" = GE only; "inex" = GE if present else GI
+
+# BAM tags
+CELL_TAG <- "BC"
+UMI_TAG <- "UB"
+GENE_EXON_TAG <- "GE"
+GENE_INTRON_TAG <- "GI"
+
+# Create output directories
+dir.create(out_dir, showWarnings = FALSE, recursive = TRUE)
+tmp_dir <- file.path(out_dir, "tmp_sort")
+dir.create(tmp_dir, showWarnings = FALSE, recursive = TRUE)
+```
+
+# Helper Functions
+
+```{r functions}
+# Check required tools
+check_tool <- function(tool) {
+  p <- Sys.which(tool)
+  if (p == "") stop("Required tool not found in PATH: ", tool)
+  p
+}
+check_tool("bash")
+check_tool("samtools")
+check_tool("awk")
+check_tool("sort")
+
+# Compression commands
+compress_cmd <- if (Sys.which("pigz") != "") sprintf("pigz -p %d -c", threads) else "gzip -c"
+decompress_cmd <- if (Sys.which("pigz") != "") "pigz -dc" else "gzip -dc"
+
+# Execute bash command
+run_bash <- function(cmd) {
+  full <- paste("bash -lc", shQuote(paste0("set -euo pipefail; ", cmd)))
+  message("\n$ ", full)
+  out <- suppressWarnings(system(full, intern = TRUE))
+  st <- attr(out, "status")
+  if (!is.null(st) && st != 0) stop("Command failed (exit ", st, ").\n", paste(out, collapse = "\n"))
+  out
+}
+
+# Count assigned reads (BC+UB+gene tags)
+count_assigned_reads <- function(bam, mode = c("inex","exon")) {
+  mode <- match.arg(mode)
+  if (mode == "exon") {
+    cmd <- sprintf(
+      "samtools view -F 2308 %s | awk '{
+         bc=0; ub=0; ge=0;
+         for(i=12;i<=NF;i++){
+           if(index($i, \"%s:Z:\")==1) bc=1;
+           else if(index($i, \"%s:Z:\")==1) ub=1;
+           else if(index($i, \"%s:Z:\")==1) ge=1;
+         }
+         if(bc && ub && ge) c++;
+       } END {print c+0}'",
+      shQuote(bam), CELL_TAG, UMI_TAG, GENE_EXON_TAG
+    )
+  } else {
+    cmd <- sprintf(
+      "samtools view -F 2308 %s | awk '{
+         bc=0; ub=0; ge=0; gi=0;
+         for(i=12;i<=NF;i++){
+           if(index($i, \"%s:Z:\")==1) bc=1;
+           else if(index($i, \"%s:Z:\")==1) ub=1;
+           else if(index($i, \"%s:Z:\")==1) ge=1;
+           else if(index($i, \"%s:Z:\")==1) gi=1;
+         }
+         if(bc && ub && (ge || gi)) c++;
+       } END {print c+0}'",
+      shQuote(bam), CELL_TAG, UMI_TAG, GENE_EXON_TAG, GENE_INTRON_TAG
+    )
+  }
+  as.numeric(run_bash(cmd)[1])
+}
+
+# Downsample BAM to target fraction
+downsample_bam_if_needed <- function(in_bam, out_bam, frac, seed = 42, threads = 4) {
+  if (frac >= 0.999999) return(in_bam)
+  s_arg <- sprintf("%d.%06d", seed, as.integer(round(frac * 1e6)))
+  cmd <- sprintf("samtools view -h -b -s %s %s > %s",
+                 s_arg, shQuote(in_bam), shQuote(out_bam))
+  run_bash(cmd)
+  run_bash(sprintf("samtools index -@ %d %s", threads, shQuote(out_bam)))
+  out_bam
+}
+
+# Extract BC, gene, UMI tags to TSV
+extract_tags_to_tsv_gz <- function(bam, out_tsv_gz, mode = c("inex","exon")) {
+  mode <- match.arg(mode)
+  if (mode == "exon") {
+    cmd <- sprintf(
+      "samtools view -F 2308 %s | awk 'BEGIN{OFS=\"\\t\"} {
+         bc=\"\"; ub=\"\"; ge=\"\";
+         for(i=12;i<=NF;i++){
+           if(index($i, \"%s:Z:\")==1) bc=substr($i,6);
+           else if(index($i, \"%s:Z:\")==1) ub=substr($i,6);
+           else if(index($i, \"%s:Z:\")==1) ge=substr($i,6);
+         }
+         if(bc!=\"\" && ub!=\"\" && ge!=\"\") print bc, ge, ub;
+       }' | %s > %s",
+      shQuote(bam), CELL_TAG, UMI_TAG, GENE_EXON_TAG, compress_cmd, shQuote(out_tsv_gz)
+    )
+  } else {
+    cmd <- sprintf(
+      "samtools view -F 2308 %s | awk 'BEGIN{OFS=\"\\t\"} {
+         bc=\"\"; ub=\"\"; ge=\"\"; gi=\"\";
+         for(i=12;i<=NF;i++){
+           if(index($i, \"%s:Z:\")==1) bc=substr($i,6);
+           else if(index($i, \"%s:Z:\")==1) ub=substr($i,6);
+           else if(index($i, \"%s:Z:\")==1) ge=substr($i,6);
+           else if(index($i, \"%s:Z:\")==1) gi=substr($i,6);
+         }
+         gene=(ge!=\"\") ? ge : gi;
+         if(bc!=\"\" && ub!=\"\" && gene!=\"\") print bc, gene, ub;
+       }' | %s > %s",
+      shQuote(bam), CELL_TAG, UMI_TAG, GENE_EXON_TAG, GENE_INTRON_TAG, compress_cmd, shQuote(out_tsv_gz)
+    )
+  }
+  run_bash(cmd)
+  invisible(out_tsv_gz)
+}
+
+# Count total reads per barcode
+count_reads_per_barcode <- function(tsv_gz, out_counts_tsv) {
+  cmd <- sprintf(
+    "%s %s | awk -F'\\t' '{c[$1]++} END{for(b in c) print b\"\\t\"c[b]}' > %s",
+    decompress_cmd, shQuote(tsv_gz), shQuote(out_counts_tsv)
+  )
+  run_bash(cmd)
+  invisible(out_counts_tsv)
+}
+
+# Count unique (gene, UMI) pairs per barcode
+count_unique_gene_umi_per_barcode <- function(tsv_gz, out_counts_tsv, tmp_dir, sort_mem) {
+  cmd <- sprintf(
+    "%s %s | LC_ALL=C sort -u -S %s -T %s | awk -F'\\t' '{c[$1]++} END{for(b in c) print b\"\\t\"c[b]}' > %s",
+    decompress_cmd, shQuote(tsv_gz), sort_mem, shQuote(tmp_dir), shQuote(out_counts_tsv)
+  )
+  run_bash(cmd)
+  invisible(out_counts_tsv)
+}
+
+# Read counts file
+read_counts_file <- function(path, colname) {
+  x <- read.delim(path, header = FALSE, stringsAsFactors = FALSE)
+  colnames(x) <- c("barcode", colname)
+  x
+}
+```
+
+# Analysis
+
+```{r analysis}
+stopifnot(all(file.exists(bam_tbl$bam)))
+
+# Count assigned reads and determine downsampling fractions
+bam_tbl$assigned_reads <- vapply(bam_tbl$bam, count_assigned_reads, numeric(1), mode = mode)
+if (any(bam_tbl$assigned_reads <= 0)) {
+  stop("Some BAM has 0 assigned reads in this mode; check tags / BAM choice.")
+}
+R_target <- min(bam_tbl$assigned_reads)
+bam_tbl <- bam_tbl %>% mutate(frac = pmin(1, R_target / assigned_reads))
+
+# Process each condition
+all_per_bc <- list()
+actual_assigned_after <- numeric(nrow(bam_tbl))
+
+for (i in seq_len(nrow(bam_tbl))) {
+  cond <- bam_tbl$condition[i]
+  bam <- bam_tbl$bam[i]
+  frac <- bam_tbl$frac[i]
+  
+  message("Processing: ", cond)
+  
+  # Downsample if needed
+  ds_bam <- file.path(out_dir, paste0(cond, ".downsampled.bam"))
+  bam_used <- downsample_bam_if_needed(bam, ds_bam, frac, seed = seed, threads = threads)
+  
+  # Extract tags and count reads/UMIs
+  tsv_gz <- file.path(out_dir, paste0(cond, ".", mode, ".barcode_gene_umi.tsv.gz"))
+  reads_bc <- file.path(out_dir, paste0(cond, ".", mode, ".reads_per_barcode.tsv"))
+  umis_bc <- file.path(out_dir, paste0(cond, ".", mode, ".umis_per_barcode.tsv"))
+  
+  extract_tags_to_tsv_gz(bam_used, tsv_gz, mode = mode)
+  count_reads_per_barcode(tsv_gz, reads_bc)
+  count_unique_gene_umi_per_barcode(tsv_gz, umis_bc, tmp_dir = tmp_dir, sort_mem = sort_mem)
+  
+  # Calculate metrics
+  r <- read_counts_file(reads_bc, "reads")
+  u <- read_counts_file(umis_bc, "umis")
+  
+  per_bc <- r %>%
+    left_join(u, by = "barcode") %>%
+    mutate(
+      umis = ifelse(is.na(umis), 0L, umis),
+      umi_per_read = umis / reads,
+      dup_rate = 1 - umi_per_read,
+      condition = cond
+    )
+  
+  actual_assigned_after[i] <- sum(per_bc$reads, na.rm = TRUE)
+  all_per_bc[[cond]] <- per_bc
+}
+
+bam_tbl$assigned_reads_after_downsample <- actual_assigned_after
+```
+
+# Summarize Results
+
+```{r summarize}
+per_sample <- bind_rows(all_per_bc) %>%
+  mutate(
+    RTase = ifelse(grepl("^Maxima", condition), "Maxima H-", "Superscript IV"),
+    RT_temp = ifelse(grepl("_42$", condition), "42 °C", "50 °C")
+  ) %>%
+  filter(reads >= min_reads_per_barcode)
+
+per_condition <- per_sample %>%
+  group_by(condition, RTase, RT_temp) %>%
+  summarise(
+    n_barcodes = n(),
+    median_reads = median(reads),
+    median_umis = median(umis),
+    median_umi_per_read = median(umi_per_read),
+    median_dup_rate = median(dup_rate),
+    mean_dup_rate = mean(dup_rate),
+    sd_dup_rate = sd(dup_rate),
+    .groups = "drop"
+  )
+
+write.csv(per_sample, 
+          file.path(out_dir, paste0("per_barcode_duplication_downsampled_", mode, ".csv")), 
+          row.names = FALSE)
+```
+
+# Visualization
+
+```{r plot}
+p <- ggplot(per_sample, aes(x = RT_temp, y = dup_rate, color=RT_temp)) +
+  geom_quasirandom(alpha=0.5)+
+  # stat_summary(fun="mean",
+  #              geom="crossbar")+
+  stat_summary(fun.data = mean_se, geom = "pointrange")+
+  labs(
+    x = "",
+    y = "UMI duplication rate \n(downsampled, 1 - UMIs/reads)", 
+  ) +
+  facet_grid(.~RTase)+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values = color_vector)+
+  theme(axis.text.x = element_text(size=13),
+        strip.text.x = element_text(size=13))+
+  stat_compare_means(method = "t.test", 
+                     paired = FALSE, 
+                     label = "p.signif",
+                     # label.y = 17000,
+                     ref.group = "42 °C") 
+p
+
+ggsave(file.path(out_dir, paste0("duplication_rate_boxplot_", mode, ".pdf")), 
+       p, width = 4, height = 3)
+```
+
+

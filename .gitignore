@@ -21,6 +21,7 @@ data/FC2024_05_02_PoP96_BA/overrepresented/
 
 
 data/RTase/00_fastq/
+data/RTase/bam_downsample_duplication_out/
 
 scripts/Power_Simulations/*old.rds
 scripts/Power_Simulations/*PTO.rds
