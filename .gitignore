@@ -25,6 +25,7 @@ data/RTase/bam_downsample_duplication_out/
 
 scripts/Power_Simulations/*old.rds
 scripts/Power_Simulations/*PTO.rds
+scripts/antisense_reads/Antisense_power/pow_simulated*.rds
 scripts/BRB_funnel.R
 scripts/intergenigs_window_analysis/
 

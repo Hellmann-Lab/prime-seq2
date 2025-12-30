@@ -1,0 +1,935 @@
+---
+title: "PrimeSeq Power Simulations: Sense vs Sense+Antisense Comparison"
+subtitle: "Comparing power analysis results with and without antisense intergenic reads"
+author: "Felix Pförtner"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    code_folding: hide
+---
+
+# Introduction
+
+This analysis compares power simulation results between:
+- **Sense-only data**: Normal gene expression counts (sense strand)
+- **Sense+Antisense data**: Combined sense and antisense intergenic reads
+
+The goal is to assess how including antisense reads affects statistical power for differential expression analysis.
+
+# Setup
+
+## Load Libraries
+
+```{r setup-libraries}
+library(tidyverse)
+library(powsimR)
+library(ggpubr)
+library(here)
+library(patchwork)  # For combining plots
+```
+
+## Initialize Environment
+
+```{r setup-environment}
+here::i_am("scripts/antisense_reads/Antisense_power/Power_simulations.Rmd")
+
+source(here("functions/custom_functions_PS.R"))
+
+set.seed(925654)
+```
+## Define Parameters
+
+```{r setup-parameters}
+# Barcodes to exclude from analysis
+unwanted_BCs <- c(
+  "TTGTAAGCGGAA",
+  "AACAGGTTCCAA",
+  "GCTACTGGTCCA",
+  "AACGTAACGCTG",
+  "AGTCGTGTCCTG",
+  "AATGTTCTCTCC",
+  "GTCGCCAACTTC",
+  "TGGCTGCAGGTT"
+)
+
+# Color scheme for plotting
+color_vector <- c("original" = "#969994", # general protocols  
+                  "improved" = "#96D8BF",   
+                  "improved w/o PTO" = "#2C3A31",  
+                  
+                  "optimized \n DNase" = "#096581", # DNase test
+                  "no DNase" = "#011E28",
+                  
+                  "P7-RS & P5+RS" = "#969994", # Seq adapters
+                  "P7-RS & P5-RS" = "#d7c4c1",
+                  "P7+RS & P5+RS" = "#8EDEE1", 
+                  "P7+RS & P5-RS" = "#1C333F",
+                  
+                  "original" = "#969994", # Seq adapters
+                  "blocked" = "#F0B0C9",
+                  "mirrored" = "#490914",
+                  
+                  "50 °C" = "#3F1A4C", # RT temp
+                  "42 °C" = "#DDC7E6",
+                  
+                  "80ng" = "#C4C082",
+                  "320ng" = "#7D7A3B",
+                  "920ng" = "#454321",
+                  
+                  "resuspended" = "#D28A4B" # Resuspension test (Suppl.)
+)
+```
+
+# Data Loading and Processing
+
+## Load Count Matrices
+
+```{r load-data-paths}
+old_paths <- c(here("data/FC2024_05_02_PoP96_BA/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+               here("data/FC2024_06_01_PoP96_FP_BA/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+               here("data/FC2024_08_01_PoP96III/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+               here("data/FC2024_11_01_PoP64_1/03_zUMIs/old/zUMIs_output/expression/PoP64_old.dgecounts.rds")
+)
+
+PTO_paths <- gsub("old", "PTO", old_paths)
+
+# Project names for antisense files (matching order of old_paths)
+antisense_project_names_old <- c("PoP96_1_old", "PoP96_2_old", "PoP96_3_old", "PoP64_old")
+antisense_project_names_PTO <- c("PoP96_1_PTO", "PoP96_2_PTO", "PoP96_3_PTO", "PoP64_PTO")
+
+# Paths to antisense count matrices
+antisense_paths_old <- map_chr(antisense_project_names_old, ~ {
+  here("scripts/antisense_reads/Antisense_power", .x, paste0(.x, "_antisense.dgecounts.rds"))
+})
+
+antisense_paths_PTO <- map_chr(antisense_project_names_PTO, ~ {
+  here("scripts/antisense_reads/Antisense_power", .x, paste0(.x, "_antisense.dgecounts.rds"))
+})
+
+process_data <- function(paths, suffix, antisense_paths = NULL) {
+  data_list <- map(seq_along(paths), ~ {
+    data <- readRDS(paths[.x])$umicount$inex$all %>%
+      as.matrix() %>%
+      remove_Geneversion() %>%
+      .[, !(colnames(.) %in% unwanted_BCs)]
+    
+    # Add antisense counts if provided
+    if (!is.null(antisense_paths) && file.exists(antisense_paths[.x])) {
+      antisense_data <- readRDS(antisense_paths[.x])$umicount$inex$all %>%
+        as.matrix() %>%
+        remove_Geneversion()
+      
+      # Align genes and barcodes
+      all_genes <- union(rownames(data), rownames(antisense_data))
+      all_barcodes <- union(colnames(data), colnames(antisense_data))
+      
+      # Create aligned matrices
+      aligned_normal <- matrix(0, nrow = length(all_genes), ncol = length(all_barcodes))
+      rownames(aligned_normal) <- all_genes
+      colnames(aligned_normal) <- all_barcodes
+      aligned_normal[rownames(data), colnames(data)] <- data
+      
+      aligned_antisense <- matrix(0, nrow = length(all_genes), ncol = length(all_barcodes))
+      rownames(aligned_antisense) <- all_genes
+      colnames(aligned_antisense) <- all_barcodes
+      aligned_antisense[rownames(antisense_data), colnames(antisense_data)] <- antisense_data
+      
+      # Combine by adding counts
+      data <- aligned_normal + aligned_antisense
+      
+      # Filter unwanted barcodes after combining
+      data <- data[, !(colnames(data) %in% unwanted_BCs), drop = FALSE]
+    }
+    
+    colnames(data) <- paste0(colnames(data), paste0("_", .x, "_", suffix))
+    return(data)
+  })
+  
+  # Create a union of all row names
+  all_row_names <- Reduce(union, lapply(data_list, rownames))
+  
+  # Align each matrix to have the same row names, filling missing values with 0
+  aligned_data <- map(data_list, ~ {
+    aligned_matrix <- matrix(0, nrow = length(all_row_names), ncol = ncol(.x))
+    rownames(aligned_matrix) <- all_row_names
+    aligned_matrix[rownames(.x), ] <- .x
+    colnames(aligned_matrix) <- colnames(.x)
+    return(aligned_matrix)
+  })
+  
+  # Combine all matrices into one wide matrix
+  combined_matrix <- do.call(cbind, aligned_data)
+  return(combined_matrix)
+}
+
+# Process old and PTO data - SENSE ONLY (normal)
+old_sense <- process_data(old_paths, "old")
+PTO_sense <- process_data(PTO_paths, "PTO")
+ncol(old_sense)
+ncol(PTO_sense)
+
+# Process old and PTO data - SENSE + ANTISENSE (combined)
+old_sense_antisense <- process_data(old_paths, "old", antisense_paths = antisense_paths_old)
+PTO_sense_antisense <- process_data(PTO_paths, "PTO", antisense_paths = antisense_paths_PTO)
+ncol(old_sense_antisense)
+ncol(PTO_sense_antisense)
+
+# Create batch information for sense-only data
+batch_info_old_sense <- data.frame(batches = c(rep("a", 8), 
+                                               rep("b", 8), 
+                                               rep("c", 8), 
+                                               rep("d", 8)
+))
+rownames(batch_info_old_sense) <- colnames(old_sense)
+
+batch_info_PTO_sense <- data.frame(batches = c(rep("a", 8), 
+                                               rep("b", 8), 
+                                               rep("c", 8), 
+                                               rep("d", 8)
+))
+rownames(batch_info_PTO_sense) <- colnames(PTO_sense)
+
+# Create batch information for sense+antisense data
+batch_info_old_sense_antisense <- data.frame(batches = c(rep("a", 8), 
+                                                         rep("b", 8), 
+                                                         rep("c", 8), 
+                                                         rep("d", 8)
+))
+rownames(batch_info_old_sense_antisense) <- colnames(old_sense_antisense)
+
+batch_info_PTO_sense_antisense <- data.frame(batches = c(rep("a", 8), 
+                                                         rep("b", 8), 
+                                                         rep("c", 8), 
+                                                         rep("d", 8)
+))
+rownames(batch_info_PTO_sense_antisense) <- colnames(PTO_sense_antisense)
+```
+
+# PowsimR
+## Evaluate Distribution
+```{r}
+# evalDistRes_old <- evaluateDist(countData = old,
+#                             batchData = batch_info_old,
+#                             RNAseq = "bulk", 
+#                             Protocol = "UMI",
+#                             Normalisation = "TMM",
+#                             FracGenes = 0.1)
+# plotEvalDist(evalDistRes_old)
+# 
+# 
+# evalDistRes_old_MR <- evaluateDist(countData = old,
+#                                 batchData = batch_info_old,
+#                                 RNAseq = "bulk", 
+#                                 Protocol = "UMI",
+#                                 Normalisation = "MR",
+#                                 FracGenes = 0.1)
+# plotEvalDist(evalDistRes_old_MR)
+# 
+# evalDistRes_PTO <- evaluateDist(countData = PTO,
+#                                 batchData = batch_info_PTO,
+#                                 RNAseq = "bulk", 
+#                                 Protocol = "UMI",
+#                                 Normalisation = "TMM",
+#                                 FracGenes = 0.01)
+# plotEvalDist(evalDistRes_PTO)
+```
+
+## Estimate Parameters from Data
+
+Estimate negative binomial parameters for both sense-only and sense+antisense datasets.
+
+```{r estimate-parameters}
+# SENSE ONLY
+# estparam_old_sense <- estimateParam(countData = old_sense,
+#                                     batchData = batch_info_old_sense,
+#                                     Normalisation = "TMM",
+#                                     RNAseq = "bulk",
+#                                     Protocol = 'UMI',
+#                                     Distribution = 'NB',
+#                                     NCores = NULL,
+#                                     verbose = TRUE,
+#                                     GeneFilter = 0.1
+# )
+
+
+# estparam_PTO_sense <- estimateParam(countData = PTO_sense,
+#                                     batchData = batch_info_PTO_sense,
+#                                     Normalisation = "TMM",
+#                                     RNAseq = "bulk",
+#                                     Protocol = 'UMI',
+#                                     Distribution = 'NB',
+#                                     NCores = NULL,
+#                                     verbose = TRUE,
+#                                     GeneFilter = 0.1
+# )
+
+
+# SENSE + ANTISENSE
+# estparam_old_sense_antisense <- estimateParam(countData = old_sense_antisense,
+#                                               batchData = batch_info_old_sense_antisense,
+#                                               Normalisation = "TMM",
+#                                               RNAseq = "bulk",
+#                                               Protocol = 'UMI',
+#                                               Distribution = 'NB',
+#                                               NCores = NULL,
+#                                               verbose = TRUE,
+#                                               GeneFilter = 0.1
+# )
+
+
+# estparam_PTO_sense_antisense <- estimateParam(countData = PTO_sense_antisense,
+#                                               batchData = batch_info_PTO_sense_antisense,
+#                                               Normalisation = "TMM",
+#                                               RNAseq = "bulk",
+#                                               Protocol = 'UMI',
+#                                               Distribution = 'NB',
+#                                               NCores = NULL,
+#                                               verbose = TRUE,
+#                                               GeneFilter = 0.1
+# )
+
+
+# plotParam(estParamRes = estparam_old_sense)
+# plotParam(estParamRes = estparam_PTO_sense)
+# plotParam(estParamRes = estparam_old_sense_antisense)
+# plotParam(estParamRes = estparam_PTO_sense_antisense)
+```
+
+## Simulation Setup
+
+```{r setup-simulation}
+# # prime-seq
+# p.lfc <- function(x) sample(c(-1.5,1.5), size=x,replace=T)*rgamma(x, shape = 1, rate = 2)
+# # BRB-seq:
+# lfc.gamma <- function(x) sample(c(-1,1), size=x,replace=T)*rgamma(x, 3, 3)
+# # vignette:
+# p.lfc <- function(x) sample(c(-1,1), size=x,replace=T)*rgamma(x, shape = 1, rate = 2)
+# 
+# # Setup simulations for SENSE ONLY data
+# setupres_old_sense <- Setup(estParamRes = estparam_old_sense,
+#                             nsims = 25,
+#                             pLFC = p.lfc,
+#                             n1 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                             n2 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                             setup.seed = 5327)
+# 
+# setupres_PTO_sense <- Setup(estParamRes = estparam_PTO_sense,
+#                             nsims = 25,
+#                             pLFC = p.lfc,
+#                             n1 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                             n2 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                             setup.seed = 5327)
+# 
+# # Setup simulations for SENSE + ANTISENSE data
+# setupres_old_sense_antisense <- Setup(estParamRes = estparam_old_sense_antisense,
+#                                       nsims = 25,
+#                                       pLFC = p.lfc,
+#                                       n1 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                                       n2 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                                       setup.seed = 5327)
+# 
+# setupres_PTO_sense_antisense <- Setup(estParamRes = estparam_PTO_sense_antisense,
+#                                       nsims = 25,
+#                                       pLFC = p.lfc,
+#                                       n1 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                                       n2 = c(3, 6, 12, 13, 14, 15, 16, 17, 18, 19, 20, 24, 48), 
+#                                       setup.seed = 5327)
+```
+
+## Run Simulations
+
+**Note:** This step is computationally intensive and may take a long time.
+
+```{r simulate-de}
+# SENSE ONLY
+# simres_old_sense <- simulateDE(SetupRes = setupres_old_sense,
+#                                Normalisation = 'TMM',
+#                                DEmethod = "limma-voom",
+#                                verbose=T)
+# 
+# saveRDS(simres_old_sense, file = here("scripts/antisense_reads/Antisense_power/pow_simulated_old_sense.rds"))
+simres_old_sense <- readRDS(here("scripts/antisense_reads/Antisense_power/pow_simulated_old_sense.rds"))
+# 
+# simres_PTO_sense <- simulateDE(SetupRes = setupres_PTO_sense,
+#                                Normalisation = 'TMM',
+#                                DEmethod = "limma-voom",
+#                                verbose=T)
+# 
+# saveRDS(simres_PTO_sense, file = here("scripts/antisense_reads/Antisense_power/pow_simulated_PTO_sense.rds"))
+simres_PTO_sense <- readRDS(here("scripts/antisense_reads/Antisense_power/pow_simulated_PTO_sense.rds"))
+# 
+# SENSE + ANTISENSE
+# simres_old_sense_antisense <- simulateDE(SetupRes = setupres_old_sense_antisense,
+#                                          Normalisation = 'TMM',
+#                                          DEmethod = "limma-voom",
+#                                          verbose=T)
+# 
+# saveRDS(simres_old_sense_antisense, file = here("scripts/antisense_reads/Antisense_power/pow_simulated_old_sense_antisense.rds"))
+simres_old_sense_antisense <- readRDS(here("scripts/antisense_reads/Antisense_power/pow_simulated_old_sense_antisense.rds"))
+# 
+# simres_PTO_sense_antisense <- simulateDE(SetupRes = setupres_PTO_sense_antisense,
+#                                          Normalisation = 'TMM',
+#                                          DEmethod = "limma-voom",
+#                                          verbose=T)
+# 
+# saveRDS(simres_PTO_sense_antisense, file = here("scripts/antisense_reads/Antisense_power/pow_simulated_PTO_sense_antisense.rds"))
+simres_PTO_sense_antisense <- readRDS(here("scripts/antisense_reads/Antisense_power/pow_simulated_PTO_sense_antisense.rds"))
+```
+
+## Evaluate Differential Expression Results
+
+```{r evaluate-de-results}
+# Evaluate DE for SENSE ONLY data
+evalderes_old_sense_mean <- evaluateDE(simRes = simres_old_sense,
+                                       alpha.type = 'adjusted',
+                                       MTC = 'BH',
+                                       stratify.by = 'mean',
+                                       filter.by = 'mean',
+                                       strata.filtered = 1,
+                                       target.by = 'lfc',
+                                       delta = 1
+)
+
+evalderes_PTO_sense_mean <- evaluateDE(simRes = simres_PTO_sense,
+                                       alpha.type = 'adjusted',
+                                       MTC = 'BH',
+                                       stratify.by = 'mean',
+                                       filter.by = 'mean',
+                                       strata.filtered = 1,
+                                       target.by = 'lfc',
+                                       delta = 1
+)
+
+evalderes_old_sense_lfc <- evaluateDE2(simRes = simres_old_sense,
+                                       alpha.type = 'adjusted',
+                                       MTC = 'BH',
+                                       stratify.by = 'lfc_abs',
+                                       filter.by = 'mean',
+                                       strata.filtered = 1,
+                                       target.by = 'lfc'
+)
+
+evalderes_PTO_sense_lfc <- evaluateDE2(simRes = simres_PTO_sense,
+                                       alpha.type = 'adjusted',
+                                       MTC = 'BH',
+                                       stratify.by = 'lfc_abs',
+                                       filter.by = 'mean',
+                                       strata.filtered = 1,
+                                       target.by = 'lfc'
+)
+
+# Evaluate DE for SENSE + ANTISENSE data
+evalderes_old_sense_antisense_mean <- evaluateDE(simRes = simres_old_sense_antisense,
+                                                 alpha.type = 'adjusted',
+                                                 MTC = 'BH',
+                                                 stratify.by = 'mean',
+                                                 filter.by = 'mean',
+                                                 strata.filtered = 1,
+                                                 target.by = 'lfc',
+                                                 delta = 1
+)
+
+evalderes_PTO_sense_antisense_mean <- evaluateDE(simRes = simres_PTO_sense_antisense,
+                                                 alpha.type = 'adjusted',
+                                                 MTC = 'BH',
+                                                 stratify.by = 'mean',
+                                                 filter.by = 'mean',
+                                                 strata.filtered = 1,
+                                                 target.by = 'lfc',
+                                                 delta = 1
+)
+
+evalderes_old_sense_antisense_lfc <- evaluateDE2(simRes = simres_old_sense_antisense,
+                                                 alpha.type = 'adjusted',
+                                                 MTC = 'BH',
+                                                 stratify.by = 'lfc_abs',
+                                                 filter.by = 'mean',
+                                                 strata.filtered = 1,
+                                                 target.by = 'lfc'
+)
+
+evalderes_PTO_sense_antisense_lfc <- evaluateDE2(simRes = simres_PTO_sense_antisense,
+                                                 alpha.type = 'adjusted',
+                                                 MTC = 'BH',
+                                                 stratify.by = 'lfc_abs',
+                                                 filter.by = 'mean',
+                                                 strata.filtered = 1,
+                                                 target.by = 'lfc'
+)
+
+
+```
+
+# Results Visualization
+
+## Diagnostic Plots
+
+```{r diagnostic-plots}
+# SENSE ONLY
+plotEvalDE(evalRes = evalderes_old_sense_mean, 
+           rate = 'marginal', 
+           quick = TRUE, 
+           Annot = TRUE)
+plotEvalDE(evalRes = evalderes_PTO_sense_mean, 
+           rate = 'marginal', 
+           quick = TRUE, 
+           Annot = TRUE)
+
+# SENSE + ANTISENSE
+plotEvalDE(evalRes = evalderes_old_sense_antisense_mean, 
+           rate = 'marginal', 
+           quick = TRUE, 
+           Annot = TRUE)
+plotEvalDE(evalRes = evalderes_PTO_sense_antisense_mean, 
+           rate = 'marginal', 
+           quick = TRUE, 
+           Annot = TRUE)
+
+plotEvalDE(evalRes = evalderes_old_sense_lfc, rate = 'marginal', quick = TRUE, Annot = TRUE)
+plotEvalDE(evalRes = evalderes_PTO_sense_lfc, rate = 'marginal', quick = TRUE, Annot = TRUE)
+plotEvalDE(evalRes = evalderes_old_sense_antisense_lfc, rate = 'marginal', quick = TRUE, Annot = TRUE)
+plotEvalDE(evalRes = evalderes_PTO_sense_antisense_lfc, rate = 'marginal', quick = TRUE, Annot = TRUE)
+```
+
+## Marginal Power Analysis
+
+Power analysis stratified by sample size.
+
+```{r marginal-power-analysis}
+# Prepare data for SENSE ONLY
+df_mean_sense <- getEvalDE_df_marginal(evalderes_old_sense_mean, 
+                                       method = "original",
+                                       count_type = "inex")
+df_mean_sense <- bind_rows(df_mean_sense,
+                           getEvalDE_df_marginal(evalderes_PTO_sense_mean, 
+                                                 method = "improved",
+                                                 count_type = "inex")) %>%
+  mutate(Var1 = factor( str_extract(Var1, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48"))) %>%
+  filter(Var1 %in% as.character(c(3:48))) %>%
+  mutate(data_type = "sense_only")
+
+# Prepare data for SENSE + ANTISENSE
+df_mean_sense_antisense <- getEvalDE_df_marginal(evalderes_old_sense_antisense_mean, 
+                                                 method = "original",
+                                                 count_type = "inex")
+df_mean_sense_antisense <- bind_rows(df_mean_sense_antisense,
+                                     getEvalDE_df_marginal(evalderes_PTO_sense_antisense_mean, 
+                                                           method = "improved",
+                                                           count_type = "inex")) %>%
+  mutate(Var1 = factor( str_extract(Var1, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48"))) %>%
+  filter(Var1 %in% as.character(c(3:48))) %>%
+  mutate(data_type = "sense_antisense")
+
+# Combine both
+df_mean <- bind_rows(df_mean_sense, df_mean_sense_antisense)%>%
+  mutate(method = factor(method, levels=c("original", "improved")))
+
+refval <- data.frame(L1 = c("FDR", "TPR"),
+                     ref = c(0.1, 0.8))
+
+power_overview_plot <- ggplot(data = df_mean %>% 
+                                filter(L1 %in% c("TPR", "FDR")) %>%
+                                mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+                              aes(x =factor(Var1),
+                                  y = value,
+                                  color = method,
+                                  linetype = data_type)) +
+  stat_summary(fun.data = "mean_se",
+               size = 0.3,) +
+  stat_summary(aes(group = paste(method, data_type)),
+               fun = mean, geom="line")+
+  labs(x = "Samples per group", y = "Rate", color = "", linetype = "") +
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')+
+  theme_pubr(legend = "bottom")+
+  facet_grid(L1~., scales = "free")+
+  scale_color_manual(values = color_vector)+
+  scale_linetype_manual(values=c(sense_only="solid", sense_antisense="dotted"))
+```
+
+## Conditional Power Analysis by Log2 Fold Change
+
+Power analysis stratified by absolute log2 fold change.
+
+```{r conditional-power-lfc}
+# Prepare conditional data for SENSE ONLY
+df_rates_lfc_sense <- getEvalDE_list_conditional(evalderes_old_sense_lfc,
+                                                 method = "original",
+                                                 count_type = "inex")$dat.stratified.long
+
+df_rates_lfc_sense <- bind_rows(df_rates_lfc_sense,getEvalDE_list_conditional(evalderes_PTO_sense_lfc,
+                                                                              method = "improved",
+                                                                              count_type = "inex")$dat.stratified.long) %>%
+  mutate(Var1 = str_replace(Var1, "0.82", "0.8")) %>%
+  mutate(Var1 = str_replace(Var1, "0.81", "0.8")) %>%
+  mutate(Var1 = str_replace(Var1, "1.16", "1.17")) %>%
+  mutate(Var1 = str_replace(Var1, "0.25", "0.26")) %>%
+  mutate(Var1 = str_replace(Var1, "0.61", "0.6")) %>%
+  mutate(Var2 = factor( str_extract(Var2, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48")))%>%
+  filter(Var2 %in% as.character(c(3:48))) %>%
+  mutate(data_type = "sense_only")
+
+# Prepare conditional data for SENSE + ANTISENSE
+df_rates_lfc_sense_antisense <- getEvalDE_list_conditional(evalderes_old_sense_antisense_lfc,
+                                                           method = "original",
+                                                           count_type = "inex")$dat.stratified.long
+
+df_rates_lfc_sense_antisense <- bind_rows(df_rates_lfc_sense_antisense,getEvalDE_list_conditional(evalderes_PTO_sense_antisense_lfc,
+                                                                                                  method = "improved",
+                                                                                                  count_type = "inex")$dat.stratified.long) %>%
+  mutate(Var1 = str_replace(Var1, "1.15", "1.17")) %>%
+  mutate(Var1 = str_replace(Var1, "0.82", "0.8")) %>%
+  mutate(Var1 = str_replace(Var1, "0.81", "0.8")) %>%
+  mutate(Var1 = str_replace(Var1, "0.25", "0.26")) %>%
+  mutate(Var1 = str_replace(Var1, "0.61", "0.6")) %>%
+  mutate(Var2 = factor( str_extract(Var2, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48")))%>%
+  filter(Var2 %in% as.character(c(3:48))) %>%
+  mutate(data_type = "sense_antisense")
+
+# Combine both
+df_rates_lfc <- bind_rows(df_rates_lfc_sense, df_rates_lfc_sense_antisense) %>%
+  mutate(method = factor(method, levels=c("original", "improved")))
+
+sample_cols<-c("#264653","#2a9d8f","#e9c46a","#f4a261","#e76f51")
+
+
+power_LFC_plot <- ggplot(data = df_rates_lfc%>% 
+                           filter(L1 %in% c("TPR", "FDR")) %>%
+                           mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+                         aes(y=value, 
+                             x=Var1, 
+                             #linetype=method, 
+                             color=Var2,
+                             linetype = data_type))+
+  stat_summary(aes(x = Var1,
+                   y = value,
+                   group = paste(method, Var2, data_type)
+  ),
+  fun = mean, geom="line") +
+  facet_grid(L1~method, scales = "free")+
+  labs(x="Stratum abs. Log2 Fold Change",
+       y="Rate",
+       colour="Samples",
+       linetype=""
+  )+
+  theme_pubr(legend = "none")+
+  theme(axis.text.x=element_text(angle=60,hjust=1))+
+  scale_color_manual(values = sample_cols)+
+  scale_linetype_manual(values=c(sense_only="solid", sense_antisense="dotted"))+
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')
+```
+
+## Conditional Power Analysis by Mean Expression
+
+Power analysis stratified by mean expression level.
+
+```{r conditional-power-mean}
+# Prepare mean expression stratified data for SENSE ONLY
+df_rates_mean_sense <- getEvalDE_list_conditional(evalderes_old_sense_mean,
+                                                  method = "original",
+                                                  count_type = "inex")$dat.stratified.long
+
+df_rates_mean_sense <- bind_rows(df_rates_mean_sense,getEvalDE_list_conditional(evalderes_PTO_sense_mean,
+                                                                                method = "improved",
+                                                                                count_type = "inex")$dat.stratified.long) %>%
+  mutate(data_type = "sense_only")
+
+df_rates_mean_sense <- df_rates_mean_sense %>% 
+  group_by(method) %>% 
+  mutate(Var1=case_when(Var1==unique(Var1)[1]~0.1,
+                        Var1==unique(Var1)[2]~0.2,
+                        Var1==unique(Var1)[3]~0.3,
+                        Var1==unique(Var1)[4]~0.4,
+                        Var1==unique(Var1)[5]~0.5,
+                        Var1==unique(Var1)[6]~0.6,
+                        Var1==unique(Var1)[7]~0.7,
+                        Var1==unique(Var1)[8]~0.8,
+                        Var1==unique(Var1)[9]~0.9,
+                        Var1==unique(Var1)[10]~1)) %>%
+  mutate(Var2 = factor( str_extract(Var2, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48")))%>%
+  filter(Var2 %in% as.character(c(3:48)))
+
+# Prepare mean expression stratified data for SENSE + ANTISENSE
+df_rates_mean_sense_antisense <- getEvalDE_list_conditional(evalderes_old_sense_antisense_mean,
+                                                            method = "original",
+                                                            count_type = "inex")$dat.stratified.long
+
+df_rates_mean_sense_antisense <- bind_rows(df_rates_mean_sense_antisense,getEvalDE_list_conditional(evalderes_PTO_sense_antisense_mean,
+                                                                                                    method = "improved",
+                                                                                                    count_type = "inex")$dat.stratified.long) %>%
+  mutate(data_type = "sense_antisense")
+
+df_rates_mean_sense_antisense <- df_rates_mean_sense_antisense %>% 
+  group_by(method) %>% 
+  mutate(Var1=case_when(Var1==unique(Var1)[1]~0.1,
+                        Var1==unique(Var1)[2]~0.2,
+                        Var1==unique(Var1)[3]~0.3,
+                        Var1==unique(Var1)[4]~0.4,
+                        Var1==unique(Var1)[5]~0.5,
+                        Var1==unique(Var1)[6]~0.6,
+                        Var1==unique(Var1)[7]~0.7,
+                        Var1==unique(Var1)[8]~0.8,
+                        Var1==unique(Var1)[9]~0.9,
+                        Var1==unique(Var1)[10]~1)) %>%
+  mutate(Var2 = factor( str_extract(Var2, 
+                                    "\\d*"),
+                        levels = c("3", "6", "12", "24", "48")))%>%
+  filter(Var2 %in% as.character(c(3:48)))
+
+# Combine both
+df_rates_mean <- bind_rows(df_rates_mean_sense, df_rates_mean_sense_antisense)%>%
+  mutate(method = factor(method, levels=c("original", "improved")))
+
+power_expr_plot <- ggplot(data = df_rates_mean %>%
+                            filter(L1 %in% c("TPR", "FDR")) %>%
+                            mutate(L1 = factor(L1, levels=c("FDR", "TPR"))), 
+                          aes(y=value, x=Var1, linetype=data_type, color=Var2))+
+  stat_summary(aes(x = Var1,
+                   y = value,
+                   group = paste(method, Var2, data_type)),
+               fun = mean, 
+               geom="line") +
+  facet_grid(L1~method, 
+             scales = "free")+
+  labs(x="Percentile Log2 Mean Expression",
+       y="",
+       colour="n",
+       linetype="")+
+  theme_pubr()+
+  ylim(c(0,1))+
+  theme(axis.text.x=element_text(angle=60,
+                                 hjust=1),
+        axis.text.y = element_blank(),
+        axis.ticks.y = element_blank())+
+  scale_color_manual(values = sample_cols)+
+  scale_linetype_manual(values=c(sense_only="solid", sense_antisense="dotted"))+
+  geom_hline(data = refval,
+             aes(yintercept = ref),
+             linetype="dashed",
+             color='black')
+```
+
+## Combined Power Analysis Figure
+
+```{r combine-power-plots}
+# load other plots showing gene detection
+p2 <- readRDS(here("scripts/antisense_reads/Antisense_gene_detection/plot_abs.rds"))
+p2b <- readRDS(here("scripts/antisense_reads/Antisense_gene_detection/plot_delta.rds"))
+
+
+design <- c("AABCCC\nDDDEEE")
+design <- c("ACD\nBCD\nEEF")
+
+legend <- as_ggplot(ggpubr::get_legend(power_expr_plot))
+
+power_expr_plot <- power_expr_plot + theme(legend.position = "none")
+
+power_plots_a <- (p2 + labs(tag = "A")) + 
+  (p2b + labs(tag = "B")) + 
+  plot_spacer()+
+  (power_overview_plot + labs(tag = "C")) +
+  (power_LFC_plot + labs(tag = "D")) + 
+  (power_expr_plot + labs(tag = "E")) + 
+  plot_layout(design = design,
+              heights = c(0.6, 0.3,1),
+              widths = c(0.85, 0.15, 1))
+
+power_plots <- power_plots_a / legend + plot_layout(heights = c(1, 0.07))
+
+power_plots
+
+ggsave(power_plots,
+       filename=here("figures/fig_S8_power_detection_antisense.pdf"),
+       height=9,
+       width=12
+)
+```
+
+
+
+# Mean-Dispersion and Mean-Variance Relationships
+
+## Extract Mean-Dispersion Data
+
+```{r extract-mean-dispersion-data}
+# Extract mean-dispersion data from all parameter estimates
+mean_disp_old_sense <- Get_Mean_Disp(estparam_old_sense)
+mean_disp_PTO_sense <- Get_Mean_Disp(estparam_PTO_sense)
+mean_disp_old_sense_antisense <- Get_Mean_Disp(estparam_old_sense_antisense)
+mean_disp_PTO_sense_antisense <- Get_Mean_Disp(estparam_PTO_sense_antisense)
+
+# Combine data points
+meanvsdisp.dat <- bind_rows(
+  mean_disp_old_sense$meanvsdisp.dat %>% mutate(method = "original", data_type = "sense_only"),
+  mean_disp_PTO_sense$meanvsdisp.dat %>% mutate(method = "improved", data_type = "sense_only"),
+  mean_disp_old_sense_antisense$meanvsdisp.dat %>% mutate(method = "original", data_type = "sense_antisense"),
+  mean_disp_PTO_sense_antisense$meanvsdisp.dat %>% mutate(method = "improved", data_type = "sense_antisense")
+) %>%
+  mutate(method = factor(method, levels = c("original", "improved")),
+         data_type = factor(data_type, levels = c("sense_only", "sense_antisense")))
+
+# Combine fitted data
+meanvsdisp.fdat <- bind_rows(
+  mean_disp_old_sense$meanvsdisp.fdat %>% mutate(method = "original", data_type = "sense_only"),
+  mean_disp_PTO_sense$meanvsdisp.fdat %>% mutate(method = "improved", data_type = "sense_only"),
+  mean_disp_old_sense_antisense$meanvsdisp.fdat %>% mutate(method = "original", data_type = "sense_antisense"),
+  mean_disp_PTO_sense_antisense$meanvsdisp.fdat %>% mutate(method = "improved", data_type = "sense_antisense")
+) %>%
+  mutate(method = factor(method, levels = c("original", "improved")),
+         data_type = factor(data_type, levels = c("sense_only", "sense_antisense")))
+
+# Common dispersion values
+cdisp_df <- data.frame(
+  method = c("original", "improved", "original", "improved"),
+  data_type = c("sense_only", "sense_only", "sense_antisense", "sense_antisense"),
+  cdisp = c(mean_disp_old_sense$cdisp,
+            mean_disp_PTO_sense$cdisp,
+            mean_disp_old_sense_antisense$cdisp,
+            mean_disp_PTO_sense_antisense$cdisp)
+) %>%
+  mutate(method = factor(method, levels = c("original", "improved")),
+         data_type = factor(data_type, levels = c("sense_only", "sense_antisense")))
+
+# Create overlay plot comparing sense vs sense+antisense for each method
+meanvsdisp.plot_overlay <- ggplot() +
+  # Data points - sense only (lighter)
+  geom_point(data = meanvsdisp.dat %>% filter(data_type == "sense_only"),
+             aes(x = Mean, y = Dispersion, color = "Sense only"),
+             size = 0.2, alpha = 0.2) +
+  # Data points - sense + antisense (darker)
+  geom_point(data = meanvsdisp.dat %>% filter(data_type == "sense_antisense"),
+             aes(x = Mean, y = Dispersion, color = "Sense + Antisense"),
+             size = 0.2, alpha = 0.2) +
+  # Fitted lines - sense only
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_only"),
+            aes(x = Mean, y = Dispersion, linetype = "Sense only", color = "Sense only"),
+            linewidth = 1.2) +
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_only"),
+            aes(x = Mean, y = Lower, linetype = "Sense only", color = "Sense only"),
+            linewidth = 0.8, alpha = 0.5) +
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_only"),
+            aes(x = Mean, y = Upper, linetype = "Sense only", color = "Sense only"),
+            linewidth = 0.8, alpha = 0.5) +
+  # Fitted lines - sense + antisense
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_antisense"),
+            aes(x = Mean, y = Dispersion, linetype = "Sense + Antisense", color = "Sense + Antisense"),
+            linewidth = 1.2) +
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_antisense"),
+            aes(x = Mean, y = Lower, linetype = "Sense + Antisense", color = "Sense + Antisense"),
+            linewidth = 0.8, alpha = 0.5) +
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_antisense"),
+            aes(x = Mean, y = Upper, linetype = "Sense + Antisense", color = "Sense + Antisense"),
+            linewidth = 0.8, alpha = 0.5) +
+  # Common dispersion lines
+  geom_hline(data = cdisp_df,
+             aes(yintercept = cdisp, linetype = data_type, color = data_type),
+             linewidth = 0.8, alpha = 0.6) +
+  labs(y = "Log Dispersion",
+       x = "Log Mean",
+       color = "Data type",
+       linetype = "Data type") +
+  scale_color_manual(values = c("Sense only" = "#2E86AB", 
+                                "Sense + Antisense" = "#A23B72",
+                                "sense_only" = "#2E86AB",
+                                "sense_antisense" = "#A23B72"),
+                     labels = c("Sense only" = "Sense only",
+                                "Sense + Antisense" = "Sense + Antisense",
+                                "sense_only" = "Sense only",
+                                "sense_antisense" = "Sense + Antisense")) +
+  scale_linetype_manual(values = c("Sense only" = 2,
+                                   "Sense + Antisense" = 1,
+                                   "sense_only" = 2,
+                                   "sense_antisense" = 1),
+                        labels = c("Sense only" = "Sense only",
+                                   "Sense + Antisense" = "Sense + Antisense",
+                                   "sense_only" = "Sense only",
+                                   "sense_antisense" = "Sense + Antisense")) +
+  facet_wrap(~ method,
+             labeller = labeller(method = c(original = "Original", 
+                                            improved = "Improved"))) +
+  theme_pubr() +
+  theme(legend.position = "right",
+        strip.background = element_blank(),
+        strip.text = element_text(size = 11, face = "bold"))
+
+meanvsdisp.plot_overlay
+```
+
+## Mean-Dispersion Lines Only
+
+Cleaner view with only fitted lines and confidence bands.
+
+```{r mean-dispersion-lines}
+meanvsdisp.plot_lines <- ggplot() +
+  # Fitted lines - sense only
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_only"),
+            aes(x = Mean, y = Dispersion, linetype = "Sense only", color = "Sense only"),
+            linewidth = 1.5) +
+  geom_ribbon(data = meanvsdisp.fdat %>% filter(data_type == "sense_only"),
+              aes(x = Mean, ymin = Lower, ymax = Upper, fill = "Sense only"),
+              alpha = 0.2) +
+  # Fitted lines - sense + antisense
+  geom_line(data = meanvsdisp.fdat %>% filter(data_type == "sense_antisense"),
+            aes(x = Mean, y = Dispersion, linetype = "Sense + Antisense", color = "Sense + Antisense"),
+            linewidth = 1.5) +
+  geom_ribbon(data = meanvsdisp.fdat %>% filter(data_type == "sense_antisense"),
+              aes(x = Mean, ymin = Lower, ymax = Upper, fill = "Sense + Antisense"),
+              alpha = 0.2) +
+  # Common dispersion lines
+  geom_hline(data = cdisp_df,
+             aes(yintercept = cdisp, linetype = data_type, color = data_type),
+             linewidth = 0.8, alpha = 0.6) +
+  labs(y = "Log Dispersion",
+       x = "Log Mean",
+       color = "Data type",
+       linetype = "Data type",
+       fill = "Data type") +
+  scale_color_manual(values = c("Sense only" = "#2E86AB", 
+                                "Sense + Antisense" = "#A23B72",
+                                "sense_only" = "#2E86AB",
+                                "sense_antisense" = "#A23B72"),
+                     labels = c("Sense only" = "Sense only",
+                                "Sense + Antisense" = "Sense + Antisense",
+                                "sense_only" = "Sense only",
+                                "sense_antisense" = "Sense + Antisense")) +
+  scale_fill_manual(values = c("Sense only" = "#2E86AB", 
+                               "Sense + Antisense" = "#A23B72"),
+                    labels = c("Sense only" = "Sense only",
+                               "Sense + Antisense" = "Sense + Antisense")) +
+  scale_linetype_manual(values = c("Sense only" = 2,
+                                   "Sense + Antisense" = 1,
+                                   "sense_only" = 2,
+                                   "sense_antisense" = 1),
+                        labels = c("Sense only" = "Sense only",
+                                   "Sense + Antisense" = "Sense + Antisense",
+                                   "sense_only" = "Sense only",
+                                   "sense_antisense" = "Sense + Antisense")) +
+  facet_wrap(~ method,
+             labeller = labeller(method = c(original = "Original", 
+                                            improved = "Improved"))) +
+  theme_pubr() +
+  theme(legend.position = "right",
+        strip.background = element_blank(),
+        strip.text = element_text(size = 11, face = "bold"))
+
+meanvsdisp.plot_lines
+```
+
+

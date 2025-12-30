@@ -1,0 +1,516 @@
+---
+title: "PrimeSeq Gene Detection: Sense vs Sense+Antisense Comparison"
+subtitle: "Comparing gene detection results with and without antisense intergenic reads"
+author: "Felix Pförtner"
+output:
+  html_document:
+    df_print: paged
+    toc: true
+    toc_depth: 3
+    code_folding: hide
+---
+
+# Introduction
+
+This analysis compares gene detection results between:
+- **Sense-only data**: Normal gene expression counts (sense strand)
+- **Sense+Antisense data**: Combined sense and antisense intergenic reads
+
+
+# Setup
+
+## Load Libraries
+
+```{r setup-libraries}
+library(tidyverse)
+library(ggpubr)
+library(here)
+library(patchwork)  # For combining plots
+```
+
+## Initialize Environment
+
+```{r setup-environment}
+here::i_am("scripts/antisense_reads/Antisense_gene_detection/Detected_genes.Rmd")
+
+source(here("functions/custom_functions_PS.R"))
+```
+## Define Parameters
+
+```{r setup-parameters}
+# Barcodes to exclude from analysis
+unwanted_BCs <- c(
+  "TTGTAAGCGGAA",
+  "AACAGGTTCCAA",
+  "GCTACTGGTCCA",
+  "AACGTAACGCTG",
+  "AGTCGTGTCCTG",
+  "AATGTTCTCTCC",
+  "GTCGCCAACTTC",
+  "TGGCTGCAGGTT"
+)
+
+# Color scheme for plotting
+color_vector <- c("original" = "#969994", # general protocols  
+                  "improved" = "#96D8BF",   
+                  "improved w/o PTO" = "#2C3A31",  
+                  
+                  "optimized \n DNase" = "#096581", # DNase test
+                  "no DNase" = "#011E28",
+                  
+                  "P7-RS & P5+RS" = "#969994", # Seq adapters
+                  "P7-RS & P5-RS" = "#d7c4c1",
+                  "P7+RS & P5+RS" = "#8EDEE1", 
+                  "P7+RS & P5-RS" = "#1C333F",
+                  
+                  "original" = "#969994", # Seq adapters
+                  "blocked" = "#F0B0C9",
+                  "mirrored" = "#490914",
+                  
+                  "50 °C" = "#3F1A4C", # RT temp
+                  "42 °C" = "#DDC7E6",
+                  
+                  "80ng" = "#C4C082",
+                  "320ng" = "#7D7A3B",
+                  "920ng" = "#454321",
+                  
+                  "resuspended" = "#D28A4B" # Resuspension test (Suppl.)
+)
+```
+
+# Data Loading and Processing
+
+## Load Count Matrices
+
+```{r load-data-paths}
+old_paths <- c(here("data/FC2024_05_02_PoP96_BA/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+               here("data/FC2024_06_01_PoP96_FP_BA/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+               here("data/FC2024_08_01_PoP96III/03_zUMIs/old/zUMIs_output/expression/OldNewPTO_old.dgecounts.rds"),
+               here("data/FC2024_11_01_PoP64_1/03_zUMIs/old/zUMIs_output/expression/PoP64_old.dgecounts.rds")
+)
+
+PTO_paths <- gsub("old", "PTO", old_paths)
+
+# Project names for antisense files (matching order of old_paths)
+antisense_project_names_old <- c("PoP96_1_old", "PoP96_2_old", "PoP96_3_old", "PoP64_old")
+antisense_project_names_PTO <- c("PoP96_1_PTO", "PoP96_2_PTO", "PoP96_3_PTO", "PoP64_PTO")
+
+# Paths to antisense count matrices
+antisense_paths_old <- map_chr(antisense_project_names_old, ~ {
+  here("scripts/antisense_reads/Antisense_power", .x, paste0(.x, "_antisense.dgecounts.rds"))
+})
+
+antisense_paths_PTO <- map_chr(antisense_project_names_PTO, ~ {
+  here("scripts/antisense_reads/Antisense_power", .x, paste0(.x, "_antisense.dgecounts.rds"))
+})
+
+process_data <- function(paths, suffix, antisense_paths = NULL) {
+  data_list <- map(seq_along(paths), ~ {
+    data <- readRDS(paths[.x])$umicount$inex$all %>%
+      as.matrix() %>%
+      remove_Geneversion() %>%
+      .[, !(colnames(.) %in% unwanted_BCs)]
+    
+    # Add antisense counts if provided
+    if (!is.null(antisense_paths) && file.exists(antisense_paths[.x])) {
+      antisense_data <- readRDS(antisense_paths[.x])$umicount$inex$all %>%
+        as.matrix() %>%
+        remove_Geneversion()
+      
+      # Align genes and barcodes
+      all_genes <- union(rownames(data), rownames(antisense_data))
+      all_barcodes <- union(colnames(data), colnames(antisense_data))
+      
+      # Create aligned matrices
+      aligned_normal <- matrix(0, nrow = length(all_genes), ncol = length(all_barcodes))
+      rownames(aligned_normal) <- all_genes
+      colnames(aligned_normal) <- all_barcodes
+      aligned_normal[rownames(data), colnames(data)] <- data
+      
+      aligned_antisense <- matrix(0, nrow = length(all_genes), ncol = length(all_barcodes))
+      rownames(aligned_antisense) <- all_genes
+      colnames(aligned_antisense) <- all_barcodes
+      aligned_antisense[rownames(antisense_data), colnames(antisense_data)] <- antisense_data
+      
+      # Combine by adding counts
+      data <- aligned_normal + aligned_antisense
+      
+      # Filter unwanted barcodes after combining
+      data <- data[, !(colnames(data) %in% unwanted_BCs), drop = FALSE]
+    }
+    
+    colnames(data) <- paste0(colnames(data), paste0("_", .x, "_", suffix))
+    return(data)
+  })
+  
+  # Create a union of all row names
+  all_row_names <- Reduce(union, lapply(data_list, rownames))
+  
+  # Align each matrix to have the same row names, filling missing values with 0
+  aligned_data <- map(data_list, ~ {
+    aligned_matrix <- matrix(0, nrow = length(all_row_names), ncol = ncol(.x))
+    rownames(aligned_matrix) <- all_row_names
+    aligned_matrix[rownames(.x), ] <- .x
+    colnames(aligned_matrix) <- colnames(.x)
+    return(aligned_matrix)
+  })
+  
+  # Combine all matrices into one wide matrix
+  combined_matrix <- do.call(cbind, aligned_data)
+  return(combined_matrix)
+}
+
+# Process original and improved data - SENSE ONLY (normal)
+old_sense <- process_data(old_paths, "old")
+PTO_sense <- process_data(PTO_paths, "PTO")
+ncol(old_sense)
+ncol(PTO_sense)
+
+# Process original and improved data - SENSE + ANTISENSE (combined)
+old_sense_antisense <- process_data(old_paths, "old", antisense_paths = antisense_paths_old)
+PTO_sense_antisense <- process_data(PTO_paths, "PTO", antisense_paths = antisense_paths_PTO)
+ncol(old_sense_antisense)
+ncol(PTO_sense_antisense)
+
+```
+
+# Gene Detection Comparison
+
+## Calculate Detected Genes per Sample
+
+```{r calculate-detected-genes}
+# Function to count detected genes per sample (genes with count > 0)
+count_detected_genes <- function(count_matrix, threshold = 0) {
+  detected <- colSums(count_matrix > threshold)
+  return(detected)
+}
+
+# Calculate detected genes for each dataset
+detected_old_sense <- count_detected_genes(old_sense)
+detected_PTO_sense <- count_detected_genes(PTO_sense)
+detected_old_sense_antisense <- count_detected_genes(old_sense_antisense)
+detected_PTO_sense_antisense <- count_detected_genes(PTO_sense_antisense)
+
+# Create summary data frame
+detection_summary <- tibble(
+  sample = c(names(detected_old_sense), names(detected_PTO_sense),
+             names(detected_old_sense_antisense), names(detected_PTO_sense_antisense)),
+  detected_genes = c(detected_old_sense, detected_PTO_sense,
+                     detected_old_sense_antisense, detected_PTO_sense_antisense),
+  condition = c(rep("original", length(detected_old_sense)),
+                rep("improved", length(detected_PTO_sense)),
+                rep("original", length(detected_old_sense_antisense)),
+                rep("improved", length(detected_PTO_sense_antisense))),
+  data_type = c(rep("Sense only", length(detected_old_sense) + length(detected_PTO_sense)),
+                rep("Sense + Antisense", length(detected_old_sense_antisense) + length(detected_PTO_sense_antisense)))
+) %>%
+  mutate(
+    condition = factor(condition, levels = c("original", "improved")),
+    data_type = factor(data_type, levels = c("Sense only", "Sense + Antisense"))
+  )
+
+# Extract project number from sample name for grouping
+detection_summary <- detection_summary %>%
+  mutate(
+    project = str_extract(sample, "_\\d+_") %>% 
+      str_remove_all("_") %>%
+      as.numeric() %>%
+      replace_na(4)  # PoP64 samples don't have number, assign 4
+  )
+
+# Summary statistics
+detection_stats <- detection_summary %>%
+  group_by(condition, data_type) %>%
+  summarise(
+    n_samples = n(),
+    mean_detected = mean(detected_genes),
+    median_detected = median(detected_genes),
+    sd_detected = sd(detected_genes),
+    min_detected = min(detected_genes),
+    max_detected = max(detected_genes),
+    .groups = "drop"
+  )
+
+print(detection_stats)
+```
+
+## Visualizations
+
+### Bar Plot: Mean Detected Genes by Condition
+
+```{r barplot-mean-detected}
+p1 <- detection_stats %>%
+  ggplot(aes(x = condition, y = mean_detected, fill = data_type)) +
+  geom_col(position = position_dodge(width = 0.8), width = 0.7) +
+  geom_errorbar(aes(ymin = mean_detected - sd_detected, 
+                    ymax = mean_detected + sd_detected),
+                position = position_dodge(width = 0.8), width = 0.3) +
+  theme_pubr() +
+  labs(
+    x = "Condition",
+    y = "Mean Detected Genes",
+    fill = "Data Type",
+    title = "Mean Gene Detection: Sense vs Sense+Antisense"
+  ) +
+  theme(legend.position = "right")
+
+p1
+```
+
+### Box Plot: Distribution of Detected Genes per Sample
+
+```{r boxplot-detected-genes}
+# Extract base sample info (same function as used later)
+extract_base_info <- function(sample_name) {
+  base <- str_remove(sample_name, "_(old|PTO)$")
+  return(base)
+}
+
+# Prepare paired data for connecting lines and statistical tests
+paired_data_wide <- detection_summary %>%
+  mutate(base_sample = extract_base_info(sample)) %>%
+  select(base_sample, condition, data_type, detected_genes) %>%
+  pivot_wider(names_from = data_type, values_from = detected_genes) %>%
+  filter(!is.na(`Sense only`) & !is.na(`Sense + Antisense`)) %>%
+  mutate(
+    `Sense only` = as.numeric(`Sense only`),
+    `Sense + Antisense` = as.numeric(`Sense + Antisense`)
+  )
+
+# Convert to long format for plotting with connecting lines
+paired_data <- paired_data_wide %>%
+  pivot_longer(cols = c(`Sense only`, `Sense + Antisense`),
+               names_to = "data_type", values_to = "detected_genes") %>%
+  mutate(
+    data_type = factor(data_type, levels = c("Sense only", "Sense + Antisense")),
+    condition = factor(condition, levels = c("original", "improved"))
+  )
+
+# Perform paired statistical tests for each condition
+stat_tests <- paired_data_wide %>%
+  group_by(condition) %>%
+  summarise(
+    # Paired t-test
+    t_test = list(t.test(`Sense only`, `Sense + Antisense`, paired = TRUE)),
+    p_value = t_test[[1]]$p.value,
+    # Wilcoxon signed-rank test (non-parametric alternative)
+    wilcox_test = list(wilcox.test(`Sense only`, `Sense + Antisense`, paired = TRUE)),
+    wilcox_p_value = wilcox_test[[1]]$p.value,
+    .groups = "drop"
+  ) %>%
+  select(condition, p_value, wilcox_p_value)
+
+print("Paired statistical tests:")
+print(stat_tests)
+
+# Create significance labels
+stat_tests <- stat_tests %>%
+  mutate(
+    p_label = case_when(
+      p_value < 0.0001 ~ "****",
+      p_value < 0.001 ~ "***",
+      p_value < 0.01 ~ "**",
+      p_value < 0.05 ~ "*",
+      TRUE ~ "ns"
+    )
+  )
+
+# Calculate y positions for significance annotations
+y_max <- max(detection_summary$detected_genes, na.rm = TRUE)
+y_annot <- y_max * 1.05
+
+# Define simple, distinct colors for sense vs sense+antisense
+# Using colors that don't overlap with color_vector
+sense_colors <- c("Sense only" = "#4A90E2",  # Nice blue
+                  "Sense + Antisense" = "#FF6B6B")  # Nice coral
+
+p2 <- detection_summary %>%
+  ggplot(aes(x = condition, y = detected_genes, color = data_type)) +
+  geom_boxplot(position = position_dodge(width = 0.8), width = 0.7, 
+               outlier.alpha = 0.5) +
+  geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.8),
+             alpha = 0.4, size = 1) +
+  # Add significance annotations for each condition
+  # Using annotation_custom or manual positioning with numeric x conversion
+  geom_text(data = stat_tests,
+            aes(x = condition, y = y_annot * 1.02, label = p_label),
+            inherit.aes = FALSE, size = 4, vjust = 0) +
+  scale_color_manual(values = sense_colors) +
+  theme_pubr() +
+  labs(
+    x = "",
+    y = "Detected Genes per Sample",
+    color = ""
+  ) +
+  theme(legend.position = "bottom")+
+  coord_flip()
+
+# Create plot for genes only detected in sense+antisense per sample
+# Function to get detected genes per sample
+get_detected_genes_per_sample <- function(count_matrix, threshold = 0) {
+  detected_list <- apply(count_matrix > threshold, 2, function(x) rownames(count_matrix)[x])
+  return(detected_list)
+}
+
+# Get detected genes per sample for each dataset
+detected_genes_old_sense <- get_detected_genes_per_sample(old_sense)
+detected_genes_PTO_sense <- get_detected_genes_per_sample(PTO_sense)
+detected_genes_old_sense_antisense <- get_detected_genes_per_sample(old_sense_antisense)
+detected_genes_PTO_sense_antisense <- get_detected_genes_per_sample(PTO_sense_antisense)
+
+# Calculate genes only in sense+antisense per sample
+# For old/original condition - match samples by name
+genes_only_per_sample_old <- map_dbl(names(detected_genes_old_sense_antisense), ~ {
+  sample_name <- .x
+  # Find matching sample in sense data (handle potential name mismatches)
+  sense_sample <- names(detected_genes_old_sense)[names(detected_genes_old_sense) == sample_name]
+  if (length(sense_sample) == 0) {
+    # If no exact match, use all genes from sense+antisense
+    sense_genes <- character(0)
+  } else {
+    sense_genes <- detected_genes_old_sense[[sense_sample]]
+  }
+  sense_antisense_genes <- detected_genes_old_sense_antisense[[sample_name]]
+  only_antisense <- setdiff(sense_antisense_genes, sense_genes)
+  length(only_antisense)
+})
+
+# For PTO/improved condition
+genes_only_per_sample_PTO <- map_dbl(names(detected_genes_PTO_sense_antisense), ~ {
+  sample_name <- .x
+  # Find matching sample in sense data
+  sense_sample <- names(detected_genes_PTO_sense)[names(detected_genes_PTO_sense) == sample_name]
+  if (length(sense_sample) == 0) {
+    sense_genes <- character(0)
+  } else {
+    sense_genes <- detected_genes_PTO_sense[[sense_sample]]
+  }
+  sense_antisense_genes <- detected_genes_PTO_sense_antisense[[sample_name]]
+  only_antisense <- setdiff(sense_antisense_genes, sense_genes)
+  length(only_antisense)
+})
+
+# Create per-sample data
+genes_only_plot_data <- tibble(
+  sample = c(names(detected_genes_old_sense_antisense), names(detected_genes_PTO_sense_antisense)),
+  n_genes = c(genes_only_per_sample_old, genes_only_per_sample_PTO),
+  condition = c(rep("original", length(genes_only_per_sample_old)),
+                rep("improved", length(genes_only_per_sample_PTO)))
+) %>%
+  mutate(condition = factor(condition, levels = c("original", "improved")))
+
+# Calculate summary statistics (mean and SEM)
+genes_only_summary <- genes_only_plot_data %>%
+  group_by(condition) %>%
+  summarise(
+    mean_genes = mean(n_genes),
+    sem_genes = sd(n_genes) / sqrt(n()),
+    .groups = "drop"
+  )
+
+p2b <- genes_only_plot_data %>%
+  ggplot() +
+  # Add points for each sample
+  geom_point(aes(x = condition, y = n_genes), position = position_jitter(width = 0.2), alpha = 0.5, size = 1.5, 
+             color = "gray40") +
+  # Add bar for mean
+  geom_col(data = genes_only_summary,
+           aes(x = condition, y = mean_genes, fill = condition),
+           width = 0.6, alpha = 0.7, inherit.aes = FALSE) +
+  # Add SEM error bars
+  geom_errorbar(data = genes_only_summary,
+                aes(x = condition, y = mean_genes, ymin = mean_genes - sem_genes, 
+                    ymax = mean_genes + sem_genes),
+                width = 0.1, inherit.aes = FALSE) +
+  scale_fill_manual(values = color_vector[c("original", "improved")]) +
+  theme_pubr() +
+  labs(
+    x = "",
+    y = "Genes Only Detected in Antisense"
+  ) +
+  theme(legend.position = "none")+
+  coord_flip()
+
+# Combine plots
+plot <- (p2 | p2b) + plot_layout(widths = c(1, 0.8))
+plot
+saveRDS(p2, here("scripts/antisense_reads/Antisense_gene_detection/plot_abs.rds"))
+saveRDS(p2b, here("scripts/antisense_reads/Antisense_gene_detection/plot_delta.rds"))
+```
+
+### Scatter Plot: Direct Comparison per Sample
+
+```{r scatter-comparison}
+# Match samples between sense and sense+antisense
+# Extract base barcode and project info
+# Sample names are: barcode_X_old or barcode_X_PTO where X is project number
+extract_base_info <- function(sample_name) {
+  # Remove only the suffix "_old" or "_PTO", keep project number
+  # This ensures samples from different projects are kept separate
+  base <- str_remove(sample_name, "_(old|PTO)$")
+  return(base)
+}
+
+# Create comparison data
+# First, check for any duplicates
+comparison_data <- detection_summary %>%
+  mutate(base_sample = extract_base_info(sample)) %>%
+  select(base_sample, condition, data_type, detected_genes)
+
+# Check for duplicates
+duplicates <- comparison_data %>%
+  count(base_sample, condition, data_type) %>%
+  filter(n > 1)
+
+if (nrow(duplicates) > 0) {
+  cat("Warning: Found duplicate base_sample entries. Aggregating by taking mean.\n")
+  comparison_data <- comparison_data %>%
+    group_by(base_sample, condition, data_type) %>%
+    summarise(detected_genes = mean(detected_genes), .groups = "drop")
+}
+
+# Now pivot
+comparison_data <- comparison_data %>%
+  pivot_wider(names_from = data_type, values_from = detected_genes) %>%
+  filter(!is.na(`Sense only`) & !is.na(`Sense + Antisense`)) %>%
+  # Ensure columns are numeric (in case of any list columns)
+  mutate(
+    `Sense only` = as.numeric(`Sense only`),
+    `Sense + Antisense` = as.numeric(`Sense + Antisense`)
+  )
+
+p3 <- comparison_data %>%
+  ggplot(aes(x = `Sense only`, y = `Sense + Antisense`, color = condition)) +
+  geom_point(alpha = 0.6, size = 2) +
+  geom_abline(intercept = 0, slope = 1, linetype = 2, color = "gray50") +
+  scale_color_manual(values = color_vector[c("original", "improved")]) +
+  theme_pubr() +
+  labs(
+    x = "Detected Genes (Sense only)",
+    y = "Detected Genes (Sense + Antisense)",
+    color = "Condition",
+    title = "Gene Detection: Sense vs Sense+Antisense"
+  ) +
+  theme(legend.position = "right")
+
+p4 <- comparison_data %>%
+  mutate(increase = `Sense + Antisense` - `Sense only`,
+         percent_increase = (increase / `Sense only`) * 100) %>%
+  ggplot(aes(x = condition, y = increase, fill = condition)) +
+  geom_boxplot(width = 0.6, outlier.alpha = 0.5) +
+  geom_point(position = position_jitter(width = 0.2), alpha = 0.5) +
+  scale_fill_manual(values = color_vector[c("original", "improved")]) +
+  theme_pubr() +
+  labs(
+    x = "Condition",
+    y = "Additional Genes Detected\n(Sense+Antisense - Sense only)",
+    title = "Increase in Gene Detection"
+  ) +
+  theme(legend.position = "none")
+
+# Combine plots
+(p3 | p4) + plot_annotation(tag_levels = "A")
+```
+
+
+
