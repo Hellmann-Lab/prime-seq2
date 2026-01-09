@@ -300,29 +300,39 @@ lost_thr   <- 1  # Out of 3 reps: absent/rare in comparison
 
 df2 <- df %>%
   mutate(
-    expressed_all = det_M42 >= 2 & det_M50 >= 2 & det_S42 >= 2 & det_S50 >= 2,
+    expressed_all = det_M42 >= robust_ref & det_M50 >= robust_ref & det_S42 >= robust_ref & det_S50 >= robust_ref,
     
-    lost_rtase = det_M42 >= robust_ref & det_S42 <= lost_thr,
-    lost_temp  = det_M42 >= robust_ref & det_M50 <= lost_thr,
-    lost_both  = det_M42 >= robust_ref & det_S42 <= lost_thr & det_M50 <= lost_thr,
+    lost_S42 = det_M42 >= robust_ref & det_S42 <= lost_thr,
+    lost_M50  = det_M42 >= robust_ref & det_M50 <= lost_thr,
+    lost_S50  = det_M42 >= robust_ref & det_S50 <= lost_thr,
     
+    logCPM = log10(cpm_M42 + 1)
+  ) %>%
+  # Pivot to long format so each gene can appear in multiple categories
+  pivot_longer(
+    cols = c(expressed_all, lost_S50, lost_S42, lost_M50),
+    names_to = "category_flag",
+    values_to = "in_category"
+  ) %>%
+  filter(in_category) %>%
+  mutate(
     group = case_when(
-      expressed_all ~ "expressed in all conditions",
-      lost_both     ~ "lost by RTase + temp",
-      lost_rtase    ~ "lost by RTase",
-      lost_temp     ~ "lost by temp",
-      TRUE          ~ NA_character_
+      category_flag == "expressed_all" ~ "expressed in all conditions",
+      category_flag == "lost_S50" ~ "not in Superscript IV 50 °C",
+      category_flag == "lost_S42" ~ "not in Superscript IV 42 °C",
+      category_flag == "lost_M50" ~ "not in Maxima H- 50 °C",
+      TRUE ~ NA_character_
     )
   ) %>%
-  filter(!is.na(group)) %>%
-  mutate(logCPM = log10(cpm_M42 + 1))
+  select(-category_flag, -in_category) %>%
+  filter(!is.na(group))
 
 # Create boxplot with proper ordering
 group_levels <- c(
-  "expressed in all conditions",
-  "lost by RTase",
-  "lost by temp",
-  "lost by RTase + temp"
+  "not in Superscript IV 50 °C",
+  "not in Superscript IV 42 °C",
+  "not in Maxima H- 50 °C",
+  "expressed in all conditions"
 )
 
 df2p <- df2 %>%
@@ -342,7 +352,7 @@ plot_expression <- ggplot(df2p, aes(x = group, y = logCPM)) +
     panel.grid.major.x = element_line(color = "grey90")
   ) +
   labs(
-    y = "log10(CPM + 1) in M42"
+    y = "log10(CPM + 1) in Maxima H- 42 °C"
   )
 
 plot_expression
@@ -376,17 +386,27 @@ df_groups <- df_det %>%
     
     lost_rtase = det_M42 >= robust_ref & det_S42 <= lost_thr,
     lost_temp  = det_M42 >= robust_ref & det_M50 <= lost_thr,
-    lost_both  = det_M42 >= robust_ref & det_S42 <= lost_thr & det_M50 <= lost_thr,
+    lost_both  = det_M42 >= robust_ref & det_S50 <= lost_thr,
     
-    group = case_when(
-      expressed_all ~ "expressed in all conditions",
-      lost_both     ~ "lost by RTase + temp",
-      lost_rtase    ~ "lost by RTase",
-      lost_temp     ~ "lost by temp",
-      TRUE          ~ NA_character_
-    ),
     det_frac_M42 = det_M42 / nrep
   ) %>%
+  # Pivot to long format so each gene can appear in multiple categories
+  pivot_longer(
+    cols = c(expressed_all, lost_both, lost_rtase, lost_temp),
+    names_to = "category_flag",
+    values_to = "in_category"
+  ) %>%
+  filter(in_category) %>%
+  mutate(
+    group = case_when(
+      category_flag == "expressed_all" ~ "expressed in all conditions",
+      category_flag == "lost_both" ~ "not in Superscript IV 50 °C",
+      category_flag == "lost_rtase" ~ "not in Superscript IV 42 °C",
+      category_flag == "lost_temp" ~ "not in Maxima H- 50 °C",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  select(-category_flag, -in_category) %>%
   filter(!is.na(group))
 
 # Create reproducibility plot
@@ -394,10 +414,10 @@ df_groups <- df_det %>%
 nrep <- ncol(counts_M42_ds)
 
 group_levels <- c(
-  "expressed in all conditions",
-  "lost by RTase",
-  "lost by temp",
-  "lost by RTase + temp"
+  "not in Superscript IV 50 °C",
+  "not in Superscript IV 42 °C",
+  "not in Maxima H- 50 °C",
+  "expressed in all conditions"
 )
 
 pdat <- df_groups %>%
@@ -461,7 +481,7 @@ Are the 'lost' genes associated with any biological process?
 ```{r gsea_preparation}
 strip_ver <- function(x) sub("\\.\\d+$", "", x)
 
-lost_groups <- c("lost by RTase", "lost by temp", "lost by RTase + temp")
+lost_groups <- c("not in Superscript IV 50 °C", "not in Superscript IV 42 °C", "not in Maxima H- 50 °C")
 
 lost_lists <- df2p %>%
   filter(group %in% lost_groups) %>%
@@ -589,7 +609,7 @@ enrichment_plot
 
 ## Summary: number of genes and significant GO terms
 ```{r go_summary}
-lost_groups <- c("lost by RTase", "lost by temp", "lost by RTase + temp")
+lost_groups <- c("not in Superscript IV 50 °C", "not in Superscript IV 42 °C", "not in Maxima H- 50 °C")
 
 # Helper function to count significant terms
 n_sig_terms <- function(enrich_obj, q = 0.05){
@@ -649,12 +669,13 @@ plot_comb_all <-
   plot_layout(
     design = layout_RT_rev,
     heights = c(0.9, 0.5, 1)
-  )
+  ) +
+  plot_annotation(tag_levels = 'A')
 
 plot_comb_all
 
 ggsave(plot_comb_all,
-       filename=here("figures/fig_S7_RT_rev.pdf"),
+       filename=here("figures/fig_S9_RT_rev.pdf"),
        height=7,
        width=13)
 ```
