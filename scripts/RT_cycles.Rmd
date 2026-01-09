@@ -408,7 +408,7 @@ p <- ggplot(per_sample, aes(x = RT_temp, y = dup_rate, color=RT_temp)) +
                      ref.group = "42 °C") 
 p
 
-ggsave(file.path(out_dir, paste0("duplication_rate_boxplot_", mode, ".pdf")), 
+ggsave(filename=here("figures/fig_S10_RT_cycles.pdf"),
        p, width = 4, height = 3)
 ```
 

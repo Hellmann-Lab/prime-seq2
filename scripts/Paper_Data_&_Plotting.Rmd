@@ -212,7 +212,7 @@ DNA_plot_no_ctrl
 # get data
 file_paths2 <- list.files(path = here("data/BBB_Resusp/"),
                           pattern = "\\.readspercell\\.txt$", 
-                          recursive = TRUE)
+                          recursive = FALSE)
 
 rpc_BBB <- map_df(seq_along(file_paths2), function(i) {
   read_delim(here("data/BBB_Resusp", file_paths2[i])) %>%
