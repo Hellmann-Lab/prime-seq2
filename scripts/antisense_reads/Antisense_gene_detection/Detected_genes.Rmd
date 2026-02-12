@@ -330,6 +330,10 @@ p2 <- detection_summary %>%
                outlier.alpha = 0.5) +
   geom_point(position = position_jitterdodge(jitter.width = 0.2, dodge.width = 0.8),
              alpha = 0.4, size = 1) +
+    stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_dodge(width = 1.1), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_dodge(width = 1.1), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   # Add significance annotations for each condition
   # Using annotation_custom or manual positioning with numeric x conversion
   geom_text(data = stat_tests,
@@ -459,7 +463,7 @@ comparison_data <- detection_summary %>%
 
 # Check for duplicates
 duplicates <- comparison_data %>%
-  count(base_sample, condition, data_type) %>%
+  dplyr::count(base_sample, condition, data_type) %>%
   filter(n > 1)
 
 if (nrow(duplicates) > 0) {
