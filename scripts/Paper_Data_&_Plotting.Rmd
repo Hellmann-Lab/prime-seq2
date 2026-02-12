@@ -188,6 +188,10 @@ DNA_plot_no_ctrl <- dnase_QF %>%
   filter(modality == "DNA" & condition != "no DNase") %>%
   ggplot(aes(y=mass_ng, x=condition, color=condition)) +
   geom_boxplot() +
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
@@ -241,6 +245,10 @@ rpc_BBB <- map_df(seq_along(file_paths2), function(i) {
 # plot
 mapping_fract_BBB_ExIn <- ggplot(data=rpc_BBB %>% filter(type == "Exon + Intron"), aes(y=fraction, x=project, color=project))+
   geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
@@ -256,6 +264,10 @@ mapping_fract_BBB_ExIn
 
 mapping_fract_BBB_In <- ggplot(data=rpc_BBB %>% filter(type == "Intergenic"), aes(y=fraction, x=project, color=project))+
   geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
@@ -286,7 +298,11 @@ RT_complexity_plot <- ggplot(complexity,
   geom_quasirandom(alpha=0.5)+
   # stat_summary(fun="mean",
   #              geom="crossbar")+
-  stat_summary(fun.data = mean_se, geom = "pointrange") +
+  # stat_summary(fun.data = mean_se, geom = "pointrange") +
+    stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 23, size = 2, fill = "white")+
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
@@ -341,9 +357,10 @@ map_fract_RT <- map_df(1:length(file_paths), process_file) %>%
 
 RT_fract_plot <- ggplot(data=map_fract_RT, aes(y=fraction, x=temp, color=temp))+
   geom_quasirandom(alpha=0.5)+
-  # stat_summary(fun="mean",
-  #              geom="crossbar")+
-  stat_summary(fun.data = mean_se, geom = "pointrange") +
+    stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 23, size = 2, fill = "white")+
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
@@ -399,6 +416,10 @@ rpc_poolsize <- map_df(seq_along(file_paths9), function(i) {
 # plot
 mapping_fract_poolsize <- ggplot(data=rpc_poolsize, aes(y=fraction, x=project, color=project, group = project))+
   geom_boxplot(aes(color = factor(project)), width = 200)+
+  stat_summary(aes(color = factor(project)), fun.data = mean_se, geom = "errorbar",
+             width = 0, position = position_nudge(x = 50), linewidth = 0.3) +
+  stat_summary(aes(color = factor(project)), fun = mean, geom = "point",
+               position = position_nudge(x = 50), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   # stat_compare_means(method = "t.test", 
   #                    paired = FALSE, 
   #                    label = "p.signif",
@@ -475,6 +496,10 @@ lib_data_P7 <- lib_data %>%
 
 read_plot_P7 <- ggplot(data=lib_data_P7, aes(x=P7, y=norm_readno_P7))+
   geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   # geom_quasirandom(aes(color=PS), size=3)+
   stat_compare_means(method = "t.test",
                      ref.group = "original",
@@ -520,6 +545,21 @@ t_test_blocked
 # Extract the p-values from the t-tests
 mirrored_pval <- signif(t_test_mirrored$p.value, digits=2)
 blocked_pval <- signif(t_test_blocked$p.value, digits=2)
+# plot
+read_plot_lig <- ggplot(data=lib_data_lig, aes(x=PS, y=norm_readno_PS, color=PS))+
+  geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
+  geom_hline(yintercept = 1, linetype = "dashed") + 
+  ylab("Relative read number")+
+  xlab("")+
+  labs(color="Ligation adapter")+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values=color_vector)+
+  coord_cartesian(ylim = c(0.6, 1.9))+  
+  theme(axis.text.x = element_text(size=13))
 
 # Annotate p-values onto the plot
 read_plot_lig <- read_plot_lig + 
@@ -532,17 +572,7 @@ read_plot_lig <- read_plot_lig +
            label = ifelse(blocked_pval >= 0.05, "ns", paste0("p = ", blocked_pval)),
            hjust = 0.5, size = 3.5)
 
-# plot
-read_plot_lig <- ggplot(data=lib_data_lig, aes(x=PS, y=norm_readno_PS, color=PS))+
-  geom_boxplot()+
-  geom_hline(yintercept = 1, linetype = "dashed") + 
-  ylab("Relative read number")+
-  xlab("")+
-  labs(color="Ligation adapter")+
-  theme_pubr(legend = "none")+
-  scale_color_manual(values=color_vector)+
-  coord_cartesian(ylim = c(0.6, 1.9))+  
-  theme(axis.text.x = element_text(size=13))
+
 
 # Annotate p-values onto the plot (write 'ns' if not significant)
 read_plot_lig <- read_plot_lig + 
@@ -711,6 +741,10 @@ fractions <- map_fract_primers %>%
 # Plot the fractions
 plot_fract <- ggplot(data = fractions %>% filter(PS == "original"), aes(y = fraction_norm, x = seq_adapters)) +
   geom_boxplot(aes(color=seq_adapters)) +
+  stat_summary(aes(color=seq_adapters), fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(aes(color=seq_adapters), fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   geom_hline(yintercept = 1, linetype = "dashed") +
   stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif",
                      comparisons = list(c("P7-RS & P5+RS", "P7-RS & P5-RS"), 
@@ -768,6 +802,10 @@ unu_nnn2
 plot_fract2 <- ggplot(data = fractions %>% filter(PS != "original"), 
                       aes(y = fraction_norm, x = seq_adapters)) +
   geom_boxplot(aes(color=seq_adapters)) +
+  stat_summary(aes(color=seq_adapters), fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(aes(color=seq_adapters), fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   geom_hline(yintercept = 1, linetype = "dashed") +
   stat_compare_means(method = "t.test", paired = TRUE, label = "p.signif",
                      comparisons = list(c("P7-RS & P5+RS", "P7-RS & P5-RS"), 
@@ -848,6 +886,10 @@ barcode_PTO_avg <- barcode_PTO %>%
 
 BC_PTO_plot <- ggplot() +
   geom_boxplot(data = barcode_PTO, aes(y=fraction, x=project, color=project))+
+  stat_summary(data = barcode_PTO, aes(y=fraction, x=project, color=project),fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(data = barcode_PTO, aes(y=fraction, x=project, color=project), fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   geom_text(data = barcode_PTO_avg, aes(y=mean_fraction, x=project, label=mean_fraction))+
   theme_pubr(legend = "none")+
   stat_compare_means(data = barcode_PTO, aes(y=fraction, x=project, color=project), method = "t.test", paired = FALSE, label = "p.signif",
@@ -1148,6 +1190,10 @@ rpc_all_smpl_plot <- rbind(rpc_all_smpl %>% mutate(rep = 1),
 
 mapping_fract_reps <- ggplot(data=rpc_all_smpl_plot, aes(y=fraction, x=project, color=project))+
   geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   stat_compare_means(method = "t.test",
                      ref.group = "original",
                      paired = FALSE, 
@@ -1213,6 +1259,10 @@ umi_variance_plot_abs <-
   ggplot(data = df_normalized,
          aes(y=normalized_umi_count, x=project, color=project))+
   geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   stat_compare_means(method = "t.test",
                      ref.group = "original",
                      paired = FALSE, 
@@ -1321,6 +1371,10 @@ RNA_plot <- dnase_QF %>%
   filter(modality == "RNA") %>%
   ggplot(aes(y=mass_ng, x=condition, color=condition)) +
   geom_boxplot() +
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   #facet_grid(~run, scales="free")+
   #coord_flip() +
   ylab("RNA [ng]")+
@@ -1340,6 +1394,10 @@ DNA_plot <- dnase_QF %>%
   filter(modality == "DNA") %>%
   ggplot(aes(y=mass_ng, x=condition, color=condition)) +
   geom_boxplot() +
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   #coord_flip() +
   labs(y = "DNA [ng]",
        x = "",
@@ -1352,7 +1410,7 @@ DNA_plot <- dnase_QF %>%
 DNA_plot
 
 # Make composite
-legend4 <- as_ggplot(get_legend(DNA_plot))
+legend4 <- as_ggplot(ggpubr::get_legend(DNA_plot))
 layout4 <- "AB\nCC"
 
 DNA_plot <- DNA_plot +
@@ -1362,7 +1420,8 @@ DNase_test_supl <- RNA_plot +
   DNA_plot + 
   legend4 +
   plot_layout(heights = c(1, 0.05),
-              design = layout4)
+              design = layout4)+ 
+  plot_annotation(tag_levels = list(c('A', 'B')))
 DNase_test_supl
 
 #save
@@ -1399,62 +1458,44 @@ lib_data_P5 <- lib_data %>%
   ungroup() %>%
   filter(P5 != "P5+RS")
 
-t_test_P5 <- t.test(lib_data_P5$readno, lib_data_P5$ctrl_readno_P5, paired = TRUE)
 
 # plot
-read_plot_P5 <- ggplot(data=lib_data_P5, aes(x=P5, y=norm_readno_P5))+
-  geom_boxplot(outlier.shape = NA)+
-  geom_quasirandom(aes(color=PS), size=2)+
+read_plot_P5 <- ggplot(data=lib_data_P5, aes(x=PS, y=norm_readno_P5, color=PS))+
+  geom_quasirandom(alpha=0.5)+
+    stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 23, size = 2, fill = "white")+
   geom_hline(yintercept = 1, linetype = "dashed") + 
   labs(color = "Ligation adapters", 
        x = "", 
        y = "Relative read number")+
   theme_pubr(legend = "none")+
-  scale_color_manual(values=color_vector)
-
-read_plot_P5 <- read_plot_P5 + 
-  annotate("text", 
-           x = 1, y = 1.02, 
-           label = case_when(t_test_P5$p.value > 0.05 ~ "ns",
-                             t_test_P5$p.value <= 0.05 ~ "*",
-                             t_test_P5$p.value <= 0.01 ~ "**",
-                             t_test_P5$p.value <= 0.001 ~ "***",
-                             t_test_P5$p.value <= 0.0001 ~ "****"),
-           hjust = 0.5, size = 5)
+  scale_color_manual(values=color_vector)+
+  facet_wrap(~P5)
 
 read_plot_P5
 
 # P7
-t_test_P7 <- t.test(lib_data_P7$readno, lib_data_P7$ctrl_readno_P7, paired = TRUE)
-
-read_plot_P7_colored <- ggplot(data=lib_data_P7, aes(x=P7, y=norm_readno_P7))+
-  geom_boxplot(outlier.shape = NA)+
-  geom_quasirandom(aes(color=PS), size=2)+
-  stat_compare_means(method = "t.test",
-                     ref.group = "original",
-                     paired = FALSE, 
-                     label = "p.signif") +
+read_plot_P7_colored <- ggplot(data=lib_data_P7, aes(x=PS, y=norm_readno_P7, color=PS))+
+  geom_quasirandom(alpha=0.5)+
+    stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 23, size = 2, fill = "white")+
   geom_hline(yintercept = 1, linetype = "dashed") + 
-  ylab("Relative read number")+
-  xlab("")+
-  labs(color="Ligation adapters")+
-  theme_pubr(legend = "right")+
-  scale_color_manual(values=color_vector)
-read_plot_P7_colored
-
-read_plot_P7_colored <- read_plot_P7_colored + 
-  annotate("text", 
-           x = 1, y = 2.9, 
-           label = case_when(t_test_P7$p.value > 0.05 ~ "ns",
-                             t_test_P7$p.value <= 0.05 ~ "*",
-                             t_test_P7$p.value <= 0.01 ~ "**",
-                             t_test_P7$p.value <= 0.001 ~ "***",
-                             t_test_P7$p.value <= 0.0001 ~ "****"),
-           hjust = 0.5, size = 5)
+  labs(color = "Ligation adapters", 
+       x = "", 
+       y = "Relative read number")+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values=color_vector)+
+  facet_wrap(~P7)
 
 read_plot_P7_colored
 
-reads_plot_supp <- read_plot_P5 + read_plot_P7_colored
+
+reads_plot_supp <- read_plot_P5 + read_plot_P7_colored +
+  plot_annotation(tag_levels = 'A')
 reads_plot_supp
 # save
 ggsave(plot = reads_plot_supp,
@@ -1496,6 +1537,10 @@ map_fract_resusp <- map_df(seq_along(file_paths), function(i) {
 
 resusp_mapfract_plot <- ggplot(data=map_fract_resusp, aes(y=fraction, x=project, color=project))+
   geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   stat_compare_means(method = "t.test",
                      ref.group = "original",
                      paired = FALSE, 
@@ -1537,6 +1582,10 @@ resusp_UMI_plot <- ggplot(data=read_umi, aes(y = umi_fraction,
                                              x = project, 
                                              color = project))+
   geom_boxplot()+
+  stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   stat_compare_means(method = "t.test",
                      ref.group = "original",
                      paired = FALSE, 
@@ -1564,7 +1613,11 @@ complexity <- readRDS(here("data/BBB_Resusp/complexity.rds"))%>%
 resusp_complexity_plot <- ggplot(data = complexity, 
                                  aes(y = n, x = project, color = project))+
   geom_violin()+
-  stat_summary(fun.data = "mean_cl_boot")+
+    stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0, linewidth = 0.3) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 23, size = 2, stroke = 0.6, fill = "white")+
+  # stat_summary(fun.data = "mean_cl_boot")+
   stat_compare_means(method = "t.test",
                      ref.group = "original",
                      paired = FALSE, 
@@ -1579,7 +1632,7 @@ resusp_complexity_plot <- ggplot(data = complexity,
 
 ### Composite
 ```{r}
-legend6 <- as_ggplot(get_legend(resusp_mapfract_plot))
+legend6 <- as_ggplot(ggpubr::get_legend(resusp_mapfract_plot))
 
 resusp_mapfract_plot <- resusp_mapfract_plot + theme(legend.position = "none")
 
@@ -1587,8 +1640,10 @@ resusp_plot_a <- resusp_mapfract_plot +
   resusp_UMI_plot +
   resusp_complexity_plot +
   plot_layout(widths = c(4, 1, 1))
+resusp_plot_a
 
-resusp_plot <- resusp_plot_a / legend6 + plot_layout(heights = c(1, 0.05))
+resusp_plot <- resusp_plot_a / legend6 + plot_layout(heights = c(1, 0.05)) + 
+  plot_annotation(tag_levels = list(c('A', 'B', 'C')))
 
 resusp_plot
 
@@ -1702,7 +1757,8 @@ power_plots_a <- conditional_lfc +
   conditional_mean +
   plot_layout(widths = c(1, 1))
 
-power_plots <- power_plots_a / legend7 + plot_layout(heights = c(1, 0.07))
+power_plots <- power_plots_a / legend7 + plot_layout(heights = c(1, 0.07))+ 
+  plot_annotation(tag_levels = list(c('A', 'B')))
 
 power_plots
 
@@ -1773,6 +1829,7 @@ read.delim(here("scripts/antisense_reads/counts_antisense_intergenics_downsample
   filter(category=="Intergenic: anti-sense") %>% 
   pull(fraction_antisense_of_all_intergenic)
 ```
+
 ## Length bias
 ```{r}
 length_bias_plot <- read_delim(here("scripts/length_bias/counts_per_bin.txt"))%>%
@@ -1781,6 +1838,10 @@ length_bias_plot <- read_delim(here("scripts/length_bias/counts_per_bin.txt"))%>
   filter(binning == "only2") %>%
   ggplot(aes(y=proportion, x=length_bin, color=`Pool size`)) +
   geom_boxplot() +
+  # stat_summary(fun.data = mean_se, geom = "errorbar",
+  #              width = 0, position = position_nudge(x = 0.18), linewidth = 0.3) +
+  # stat_summary(fun = mean, geom = "point",
+  #              position = position_nudge(x = 0.18), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(
     y="UMI fraction", 
@@ -1793,7 +1854,8 @@ length_bias_plot <- read_delim(here("scripts/length_bias/counts_per_bin.txt"))%>
 ## Composite
 ```{r}
 poolsize_suppl <- poolsize_intergenics_plot + length_bias_plot + 
-  plot_layout(widths = c(0.6, 1))
+  plot_layout(widths = c(0.6, 1))+
+  plot_annotation(tag_levels = 'A')
 
 #save
 ggsave(poolsize_suppl,
@@ -1820,6 +1882,81 @@ PS_FC_yields3 <- PS_FC_yields %>%
 write.csv(PS_FC_yields3, 
           here("figures/supp_primeseq_improved_samples_table.csv"), 
           row.names=F)
+
+```
+
+## supplement - read funnels alternative samples
+
+```{r}
+source("/data/share/htp/prime-seq_NextGen/scripts/read_funnel_alt_samples.R")
+
+read_funnel_all_Liver
+read_funnel_all_KOLF
+
+read_funnel_avg_all_Liver
+read_funnel_avg_all_KOLF
+
+# plot overview Liver
+funnel_plot_Liver <- ggplot()+
+  stat_summary(data=read_funnel_all_Liver, 
+               aes(y=step, x=reads_norm, color=project), 
+               fun.data = "mean_se",
+               fun.args = list(mult = 1),
+               geom="errorbar", 
+               position=position_dodge(0.2), 
+               width=.2,
+               size=.5) + 
+  geom_line(data=read_funnel_avg_all_Liver, aes(y=step, x=reads_rel, color=project, group=project), size=0.9) + 
+  scale_x_continuous(position = "top") + 
+  ylab("Processing Steps \n \u27F5") +
+  xlab("Liver lysate - Relative Reads")+
+  scale_y_discrete(limits = rev(levels(read_funnel_all_Liver$step)))+
+  labs(color="Protocol")+
+  theme_pubr(legend = "bottom")+
+  scale_color_manual(values = color_vector)+
+  theme(axis.text.y = element_text(size=13),
+        legend.text=element_text(size=13),
+        legend.title = element_text(size=13))
+
+
+# plot overview KOLF
+funnel_plot_KOLF <- ggplot()+
+  stat_summary(data=read_funnel_all_KOLF, 
+               aes(y=step, x=reads_norm, color=project), 
+               fun.data = "mean_se",
+               fun.args = list(mult = 1),
+               geom="errorbar", 
+               position=position_dodge(0.2), 
+               width=.2,
+               size=.5) + 
+  geom_line(data=read_funnel_avg_all_KOLF, aes(y=step, x=reads_rel, color=project, group=project), size=0.9) + 
+  scale_x_continuous(position = "top") + 
+ # ylab("Processing Steps \n \u27F5") +
+  xlab("KOLF cell line - Relative Reads")+
+  scale_y_discrete(limits = rev(levels(read_funnel_all_KOLF$step)))+
+  labs(color="Protocol")+
+  theme_pubr(legend = "none")+
+  scale_color_manual(values = color_vector)+
+  theme(#axis.text.y = element_text(size=13),
+        legend.text=element_text(size=13),
+        legend.title = element_text(size=13),
+        axis.text.y = element_blank(),
+        axis.title.y = element_blank())
+
+
+# composite
+alt_samples_suppl <- funnel_plot_Liver + funnel_plot_KOLF + 
+  plot_layout(widths = c(1, 1))+
+  plot_annotation(tag_levels = 'A')
+
+alt_samples_suppl
+
+#save
+ggsave(alt_samples_suppl,
+       filename="/data/share/htp/prime-seq_NextGen/figures/fig_S13_alt_samples_funnels.png",
+       height=5,
+       width=10
+)
 
 ```
 
