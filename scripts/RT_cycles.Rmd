@@ -387,11 +387,16 @@ write.csv(per_sample,
 # Visualization
 
 ```{r plot}
+per_sample <- read_csv(file.path(out_dir, paste0("per_barcode_duplication_downsampled_", mode, ".csv")))
+
 p <- ggplot(per_sample, aes(x = RT_temp, y = dup_rate, color=RT_temp)) +
   geom_quasirandom(alpha=0.5)+
   # stat_summary(fun="mean",
   #              geom="crossbar")+
-  stat_summary(fun.data = mean_se, geom = "pointrange")+
+      stat_summary(fun.data = mean_se, geom = "errorbar",
+               width = 0) +
+  stat_summary(fun = mean, geom = "point",
+               shape = 23, size = 2, fill = "white")+
   labs(
     x = "",
     y = "UMI duplication rate \n(downsampled, 1 - UMIs/reads)", 
