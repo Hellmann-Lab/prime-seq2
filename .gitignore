@@ -28,6 +28,8 @@ scripts/Power_Simulations/*PTO.rds
 scripts/antisense_reads/Antisense_power/pow_simulated*.rds
 scripts/BRB_funnel.R
 scripts/intergenigs_window_analysis/
+scripts/length_bias/
+scripts/poolsize_chimera/
 
 
 **/00_fastq/*.fastq.gz
@@ -50,6 +52,7 @@ scripts/intergenigs_window_analysis/
 **/XX_data_submission/
 **/04_analysis/
 **/03b_custom_genome(s)/
+**/03b_genome/
 
 scripts/blacklist_overlap/
 scripts/poolsize_intergenic_quality/*
