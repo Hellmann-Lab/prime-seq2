@@ -291,30 +291,38 @@ complexity <- readRDS(here("data/RTase/complexity_RTase.rds")) %>%
   mutate(temp = paste(str_extract(project, "..$"), "°C")) %>%
   mutate(enzyme = ifelse(grepl("Maxima_..", project), "Maxima H-", "Superscript IV")) %>%
   filter(replicate == 1) %>% 
-  filter(ds_level2 == "7.0e+06")
+  filter(ds_level2 == "7.0e+06") %>%
+  mutate(temp_enz_cat = paste0(enzyme, "\n", temp))
 
 RT_complexity_plot <- ggplot(complexity, 
-                             aes(y=n, x=temp, color = temp))+
+       aes(y=n, x=temp_enz_cat, color = temp))+
   geom_quasirandom(alpha=0.5)+
   # stat_summary(fun="mean",
   #              geom="crossbar")+
   # stat_summary(fun.data = mean_se, geom = "pointrange") +
-    stat_summary(fun.data = mean_se, geom = "errorbar",
+  stat_summary(fun.data = mean_se, geom = "errorbar",
                width = 0) +
   stat_summary(fun = mean, geom = "point",
                shape = 23, size = 2, fill = "white")+
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
-                     label.y = 17000,
-                     ref.group = "42 °C") +
-  facet_grid(.~enzyme)+
+                     comparisons = list(c("Superscript IV\n50 °C", "Superscript IV\n42 °C"),
+                                        c("Maxima H-\n50 °C", "Maxima H-\n42 °C"),
+                                        c("Maxima H-\n50 °C", "Superscript IV\n50 °C"),
+                                        c("Maxima H-\n42 °C", "Superscript IV\n42 °C")
+                     ),
+                     #label.y = 17000#,
+                     #ref.group = "42 °C"
+                     ) +
+  #facet_grid(.~enzyme)+
   xlab("")+
   ylab("Detected Genes")+
   theme_pubr(legend = "none")+
   scale_color_manual(values = color_vector)+
-  theme(axis.text.x = element_text(size=13),
-        strip.text.x = element_text(size=13))
+  theme(axis.text.x = element_text(size=13,angle = 90, vjust = 0.5, hjust = 1),
+        strip.text.x = element_text(size=13))+ 
+  coord_cartesian(ylim = c(0, 27000))
 
 RT_complexity_plot
 ```
@@ -353,27 +361,36 @@ process_file <- function(i) {
 map_fract_RT <- map_df(1:length(file_paths), process_file) %>%
   mutate(temp = paste(str_extract(project, "..$"), "°C")) %>%
   mutate(enzyme = ifelse(grepl("Maxima_..", project), "Maxima H-", "Superscript IV")) %>%
-  filter(type == c("Exon + Intron"))
+  filter(type == c("Exon + Intron"))%>%
+  mutate(temp_enz_cat = paste0(enzyme, "\n", temp))
 
-RT_fract_plot <- ggplot(data=map_fract_RT, aes(y=fraction, x=temp, color=temp))+
+RT_fract_plot <- ggplot(data=map_fract_RT, aes(y=fraction, x=temp_enz_cat, color=temp))+
   geom_quasirandom(alpha=0.5)+
-    stat_summary(fun.data = mean_se, geom = "errorbar",
+  stat_summary(fun.data = mean_se, geom = "errorbar",
                width = 0) +
   stat_summary(fun = mean, geom = "point",
                shape = 23, size = 2, fill = "white")+
   stat_compare_means(method = "t.test", 
                      paired = FALSE, 
                      label = "p.signif",
-                     label.y = 0.92,
-                     ref.group = "42 °C") +
+                     comparisons = list(c("Superscript IV\n50 °C", "Superscript IV\n42 °C"),
+                                        c("Maxima H-\n50 °C", "Maxima H-\n42 °C"),
+                                        c("Maxima H-\n50 °C", "Superscript IV\n50 °C"),
+                                        c("Maxima H-\n42 °C", "Superscript IV\n42 °C")
+                     ),
+                     #label.y = 17000#,
+                     #ref.group = "42 °C"
+                     ) +
   labs(y = "Exon + intron fraction", x = "") +
-  facet_grid(~enzyme, scales = "free")+
+  #facet_grid(~enzyme, scales = "free")+
   theme_pubr(legend = "none") +
   scale_color_manual(values=color_vector) +
   # theme(panel.border = element_rect(color = "black", fill = NA)  # Add border around each panel
   # )+
-  theme(axis.text.x = element_text(size=13),
-        strip.text.x = element_text(size=13))
+  theme(axis.text.x = element_blank(),
+    #axis.text.x = element_text(size=13,angle = 90, vjust = 1, hjust = 1),
+        strip.text.x = element_text(size=13))+ 
+  coord_cartesian(ylim = c(0.8, 0.99))
 
 RT_fract_plot
 ```
@@ -417,7 +434,7 @@ rpc_poolsize <- map_df(seq_along(file_paths9), function(i) {
 mapping_fract_poolsize <- ggplot(data=rpc_poolsize, aes(y=fraction, x=project, color=project, group = project))+
   geom_boxplot(aes(color = factor(project)), width = 200)+
   stat_summary(aes(color = factor(project)), fun.data = mean_se, geom = "errorbar",
-             width = 0, position = position_nudge(x = 50), linewidth = 0.3) +
+               width = 0, position = position_nudge(x = 50), linewidth = 0.3) +
   stat_summary(aes(color = factor(project)), fun = mean, geom = "point",
                position = position_nudge(x = 50), shape = 23, size = 2, stroke = 0.6, fill = "white")+
   # stat_compare_means(method = "t.test", 
@@ -453,7 +470,7 @@ comp_plot_Fig2 <-
   RT_complexity_plot +
   mapping_fract_poolsize +
   plot_layout(design = layout,
-              widths = c(1, 1, 1, 1.6, 1.3))
+              widths = c(1, 1, 1, 1.8, 1.3))
 
 # save
 ggsave(plot = comp_plot_Fig2,
@@ -1462,7 +1479,7 @@ lib_data_P5 <- lib_data %>%
 # plot
 read_plot_P5 <- ggplot(data=lib_data_P5, aes(x=PS, y=norm_readno_P5, color=PS))+
   geom_quasirandom(alpha=0.5)+
-    stat_summary(fun.data = mean_se, geom = "errorbar",
+  stat_summary(fun.data = mean_se, geom = "errorbar",
                width = 0) +
   stat_summary(fun = mean, geom = "point",
                shape = 23, size = 2, fill = "white")+
@@ -1479,7 +1496,7 @@ read_plot_P5
 # P7
 read_plot_P7_colored <- ggplot(data=lib_data_P7, aes(x=PS, y=norm_readno_P7, color=PS))+
   geom_quasirandom(alpha=0.5)+
-    stat_summary(fun.data = mean_se, geom = "errorbar",
+  stat_summary(fun.data = mean_se, geom = "errorbar",
                width = 0) +
   stat_summary(fun = mean, geom = "point",
                shape = 23, size = 2, fill = "white")+
@@ -1613,7 +1630,7 @@ complexity <- readRDS(here("data/BBB_Resusp/complexity.rds"))%>%
 resusp_complexity_plot <- ggplot(data = complexity, 
                                  aes(y = n, x = project, color = project))+
   geom_violin()+
-    stat_summary(fun.data = mean_se, geom = "errorbar",
+  stat_summary(fun.data = mean_se, geom = "errorbar",
                width = 0, linewidth = 0.3) +
   stat_summary(fun = mean, geom = "point",
                shape = 23, size = 2, stroke = 0.6, fill = "white")+
@@ -1931,17 +1948,17 @@ funnel_plot_KOLF <- ggplot()+
                size=.5) + 
   geom_line(data=read_funnel_avg_all_KOLF, aes(y=step, x=reads_rel, color=project, group=project), size=0.9) + 
   scale_x_continuous(position = "top") + 
- # ylab("Processing Steps \n \u27F5") +
+  # ylab("Processing Steps \n \u27F5") +
   xlab("KOLF cell line - Relative Reads")+
   scale_y_discrete(limits = rev(levels(read_funnel_all_KOLF$step)))+
   labs(color="Protocol")+
   theme_pubr(legend = "none")+
   scale_color_manual(values = color_vector)+
   theme(#axis.text.y = element_text(size=13),
-        legend.text=element_text(size=13),
-        legend.title = element_text(size=13),
-        axis.text.y = element_blank(),
-        axis.title.y = element_blank())
+    legend.text=element_text(size=13),
+    legend.title = element_text(size=13),
+    axis.text.y = element_blank(),
+    axis.title.y = element_blank())
 
 
 # composite
