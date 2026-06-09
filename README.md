@@ -1,4 +1,4 @@
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.19232318.svg)](https://doi.org/10.5281/zenodo.19232318)
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20607835.svg)](https://doi.org/10.5281/zenodo.20607835)
 
 # prime-seq 2
 
