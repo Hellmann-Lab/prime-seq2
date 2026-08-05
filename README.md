@@ -4,7 +4,7 @@
 
 This repository contains scripts used for the analysis performed in our manuscript
 
-**Increasing usable reads in RNA-seq protocols**
+[**Increasing usable reads in RNA-seq protocols**](https://doi.org/10.1016/j.isci.2026.116984)
 *Felix Pförtner, Eva Briem, Wolfgang Enard, Daniel Richter*
 
 For the full prime-seq protocol please visit [protocols.io](https://www.protocols.io/view/prime-seq-2-dsyx6fxn).
